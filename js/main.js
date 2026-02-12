@@ -24,7 +24,7 @@ import {
   addFloatingPiece, removeFloatingPiece,
   spawnCreationParticles,
 } from './renderer.js';
-import { hexToPixel, getNeighbors, pixelToHex } from './hex-math.js';
+import { hexToPixel, getNeighbors, pixelToHex, findClusterAtPixel } from './hex-math.js';
 import { initInput, getHoverCluster, consumeAction, getLastClickPos, triggerAction } from './input.js';
 import { tween, updateTweens, easeOutCubic, easeOutBounce } from './tween.js';
 import {
@@ -196,7 +196,11 @@ function trySelect() {
   }
 
   // Normal 3-hex cluster selection
-  const cluster = getHoverCluster();
+  const cluster = findClusterAtPixel(
+    clickPos.x, clickPos.y, 
+    originX, originY, 
+    GRID_COLS, GRID_ROWS
+  );
   if (cluster) {
     flowerCenter = null;
     pearlCenter = null;
