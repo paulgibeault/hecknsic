@@ -794,6 +794,13 @@ async function runCascade(matches) {
     if (bpPost.length > 0) {
       await animateBlackPearlCreation(bpPost);
     }
+  } else {
+    // If no new starflowers, existing ones might still have formed a black pearl
+    // (e.g. if the rotation formed a pearl + a match elsewhere)
+    const bpPost = detectBlackPearls(grid);
+    if (bpPost.length > 0) {
+      await animateBlackPearlCreation(bpPost);
+    }
   }
 
   advanceChain();

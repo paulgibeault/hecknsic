@@ -284,7 +284,7 @@ function drawStarHex(cx, cy, size, alpha = 1) {
   ctx.save();
   ctx.globalAlpha = alpha;
 
-  // Clip to hex shape for all effects
+  // Clip to hex shape
   ctx.beginPath();
   ctx.moveTo(corners[0].x, corners[0].y);
   for (let i = 1; i < 6; i++) ctx.lineTo(corners[i].x, corners[i].y);
@@ -292,119 +292,96 @@ function drawStarHex(cx, cy, size, alpha = 1) {
   ctx.save();
   ctx.clip();
 
-  // Base fill: dark metallic gradient
-  const baseGrad = ctx.createRadialGradient(
-    cx - size * 0.25, cy - size * 0.25, size * 0.05,
-    cx, cy, size * 1.1
-  );
-  baseGrad.addColorStop(0, color.light);
-  baseGrad.addColorStop(0.45, color.base);
-  baseGrad.addColorStop(1, color.dark);
-  ctx.fillStyle = baseGrad;
+  // Background: dark metallic recess
+  const bgGrad = ctx.createRadialGradient(cx, cy, size * 0.2, cx, cy, size);
+  bgGrad.addColorStop(0, '#2A3038');
+  bgGrad.addColorStop(1, '#15181C');
+  ctx.fillStyle = bgGrad;
   ctx.fillRect(cx - size, cy - size, size * 2, size * 2);
 
-  // Brushed-metal bands: diagonal linear streaks
-  const bandGrad = ctx.createLinearGradient(
+  // 3D Faceted Star
+  const innerR = size * 0.25; // center radius where points meet
+  const outerR = size * 0.95; // tips of the star
+
+  for (let i = 0; i < 6; i++) {
+    const angle = (Math.PI / 3) * i - Math.PI / 6; // Points at corners
+    // Coordinates
+    // Tip of the star point (at hex corner)
+    const tipX = cx + Math.cos(angle) * outerR;
+    const tipY = cy + Math.sin(angle) * outerR;
+
+    // Base of the star point (center)
+    const centerX = cx;
+    const centerY = cy;
+
+    // Valley points between stars (midway to next/prev point)
+    const valleyR = size * 0.45;
+    const prevValleyX = cx + Math.cos(angle - Math.PI/6) * valleyR;
+    const prevValleyY = cy + Math.sin(angle - Math.PI/6) * valleyR;
+    const nextValleyX = cx + Math.cos(angle + Math.PI/6) * valleyR;
+    const nextValleyY = cy + Math.sin(angle + Math.PI/6) * valleyR;
+
+    // Draw Left Facet (shadowed side usually)
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY);
+    ctx.lineTo(tipX, tipY);
+    ctx.lineTo(prevValleyX, prevValleyY);
+    ctx.closePath();
+    ctx.fillStyle = (i % 2 === 0) ? color.base : color.dark;
+    ctx.fill();
+
+    // Draw Right Facet (highlighted side usually)
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY);
+    ctx.lineTo(tipX, tipY);
+    ctx.lineTo(nextValleyX, nextValleyY);
+    ctx.closePath();
+    ctx.fillStyle = (i % 2 === 0) ? color.light : color.base;
+    ctx.fill();
+
+    // Highlight ridge (line from center to tip)
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY);
+    ctx.lineTo(tipX, tipY);
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+    ctx.lineWidth = 1.0;
+    ctx.stroke();
+  }
+
+  // Shimmer effect overlay
+  const shimmer = (Math.sin(now / 300) + 1) / 2;
+  const shimmerGrad = ctx.createLinearGradient(
     cx - size, cy - size, cx + size, cy + size
   );
-  bandGrad.addColorStop(0.0, 'rgba(255,255,255,0)');
-  bandGrad.addColorStop(0.2, 'rgba(255,255,255,0.06)');
-  bandGrad.addColorStop(0.3, 'rgba(255,255,255,0)');
-  bandGrad.addColorStop(0.45, 'rgba(255,255,255,0.08)');
-  bandGrad.addColorStop(0.55, 'rgba(255,255,255,0)');
-  bandGrad.addColorStop(0.7, 'rgba(255,255,255,0.05)');
-  bandGrad.addColorStop(0.85, 'rgba(255,255,255,0)');
-  bandGrad.addColorStop(1.0, 'rgba(255,255,255,0.04)');
-  ctx.fillStyle = bandGrad;
-  ctx.fillRect(cx - size, cy - size, size * 2, size * 2);
-
-  // Animated shimmer: sweeping highlight that moves across the piece
-  const shimmerPhase = (now % 3000) / 3000;  // 3 second cycle
-  const shimmerX = cx + size * 2 * (shimmerPhase - 0.5);
-  const shimmerGrad = ctx.createRadialGradient(
-    shimmerX, cy - size * 0.3, 0,
-    shimmerX, cy - size * 0.3, size * 0.8
-  );
-  const shimmerAlpha = 0.12 + 0.08 * Math.sin(shimmerPhase * Math.PI * 2);
-  shimmerGrad.addColorStop(0, `rgba(200,220,240,${shimmerAlpha})`);
-  shimmerGrad.addColorStop(1, 'rgba(200,220,240,0)');
+  shimmerGrad.addColorStop(0, 'rgba(255,255,255,0)');
+  shimmerGrad.addColorStop(0.5, `rgba(255,255,255,${0.25 * shimmer})`);
+  shimmerGrad.addColorStop(1, 'rgba(255,255,255,0)');
   ctx.fillStyle = shimmerGrad;
   ctx.fillRect(cx - size, cy - size, size * 2, size * 2);
 
-  // Strong specular highlight top-left
-  const specGrad = ctx.createRadialGradient(
-    cx - size * 0.35, cy - size * 0.35, 0,
-    cx - size * 0.35, cy - size * 0.35, size * 0.7
+  // Center gem/hub
+  ctx.beginPath();
+  ctx.arc(cx, cy, size * 0.15, 0, Math.PI * 2);
+  const gemGrad = ctx.createRadialGradient(
+    cx - size * 0.05, cy - size * 0.05, 0,
+    cx, cy, size * 0.15
   );
-  specGrad.addColorStop(0, 'rgba(255,255,255,0.4)');
-  specGrad.addColorStop(0.3, 'rgba(255,255,255,0.12)');
-  specGrad.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = specGrad;
-  ctx.fillRect(cx - size, cy - size, size * 2, size * 2);
+  gemGrad.addColorStop(0, '#FFFFFF');
+  gemGrad.addColorStop(0.5, color.light);
+  gemGrad.addColorStop(1, color.dark);
+  ctx.fillStyle = gemGrad;
+  ctx.fill();
 
-  ctx.restore(); // un-clip
+  ctx.restore(); // Unclip
 
-  // Polished edge: bright inner stroke + dark outer stroke
+  // Frame stroke
   ctx.beginPath();
   ctx.moveTo(corners[0].x, corners[0].y);
   for (let i = 1; i < 6; i++) ctx.lineTo(corners[i].x, corners[i].y);
   ctx.closePath();
-  ctx.strokeStyle = 'rgba(160,180,200,0.35)';
+  ctx.strokeStyle = '#2A3038';
   ctx.lineWidth = 2;
   ctx.stroke();
-
-  ctx.beginPath();
-  ctx.moveTo(corners[0].x, corners[0].y);
-  for (let i = 1; i < 6; i++) ctx.lineTo(corners[i].x, corners[i].y);
-  ctx.closePath();
-  ctx.strokeStyle = color.dark;
-  ctx.lineWidth = 1;
-  ctx.stroke();
-
-  // ── Etched 6-pointed star symbol ──────────────────────────
-  drawEtchedStar(cx, cy, size * 0.48, now);
-
-  ctx.restore();
-}
-
-/** Draw a 6-pointed star (Star of David shape) etched into metal */
-function drawEtchedStar(cx, cy, radius, now) {
-  const shimmer = 0.7 + 0.15 * Math.sin(now / 800);
-
-  ctx.save();
-
-  // Build 6-pointed star path (two overlapping triangles)
-  ctx.beginPath();
-  for (let tri = 0; tri < 2; tri++) {
-    const offset = tri * (Math.PI / 6);
-    for (let i = 0; i < 3; i++) {
-      const angle = offset + (Math.PI * 2 / 3) * i - Math.PI / 2;
-      const x = cx + Math.cos(angle) * radius;
-      const y = cy + Math.sin(angle) * radius;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.closePath();
-  }
-
-  // Inner glow fill
-  const starGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
-  starGrad.addColorStop(0, `rgba(200,215,230,${0.35 * shimmer})`);
-  starGrad.addColorStop(0.6, `rgba(150,170,190,${0.2 * shimmer})`);
-  starGrad.addColorStop(1, `rgba(100,120,140,${0.1 * shimmer})`);
-  ctx.fillStyle = starGrad;
-  ctx.fill();
-
-  // Etched outline
-  ctx.strokeStyle = `rgba(200,220,240,${0.5 * shimmer})`;
-  ctx.lineWidth = 1.2;
-  ctx.stroke();
-
-  // Bright center dot
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius * 0.12, 0, Math.PI * 2);
-  ctx.fillStyle = `rgba(220,235,250,${0.6 * shimmer})`;
-  ctx.fill();
 
   ctx.restore();
 }
