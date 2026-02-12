@@ -18,11 +18,12 @@ import { getNeighbors } from './hex-math.js';
 /**
  * Board-scan: if any hex has all 6 in-bounds neighbors the same color
  * AND different from itself → center becomes a starflower.
- * Call after rotations, gravity, or refill.
- * @returns {Array<{col, row}>} positions that became starflowers
+ *
+ * Does NOT clear ring tiles — returns their data so the caller can animate.
+ * @returns {Array<{center, ring, ringColor}>}
  */
 export function detectStarflowers(grid) {
-  const created = [];
+  const results = [];
   for (let c = 0; c < GRID_COLS; c++) {
     for (let r = 0; r < GRID_ROWS; r++) {
       const cell = grid[c][r];
@@ -37,23 +38,28 @@ export function detectStarflowers(grid) {
       const ringColor = grid[valid[0].col][valid[0].row].colorIndex;
       if (ringColor !== cell.colorIndex &&
           valid.every(n => grid[n.col][n.row].colorIndex === ringColor)) {
-        cell.colorIndex = ringColor;
+        // Mark center as starflower (metallic bronze, no matchable color)
+        cell.colorIndex = -1;
         cell.special = 'starflower';
-        created.push({ col: c, row: r });
+        results.push({
+          center: { col: c, row: r },
+          ring: valid.map(n => ({ col: n.col, row: n.row })),
+          ringColor,
+        });
       }
     }
   }
-  return created;
+  return results;
 }
 
 /**
- * Post-match starflower detection: check cleared cells to see if
- * removing them created a ring of 6 same-color around the gap.
- * Call after removing matched cells, before gravity.
+ * Post-match starflower detection at cleared positions.
+ * Does NOT clear ring tiles — returns data for animated clearing.
  * @param {Set<string>} clearedKeys - "col,row" keys of just-cleared cells
+ * @returns {Array<{center, ring, ringColor}>}
  */
 export function detectStarflowersAtCleared(grid, clearedKeys) {
-  const created = [];
+  const results = [];
   for (const key of clearedKeys) {
     const [c, r] = key.split(',').map(Number);
     if (grid[c][r] !== null) continue;
@@ -68,11 +74,16 @@ export function detectStarflowersAtCleared(grid, clearedKeys) {
 
     const color = grid[valid[0].col][valid[0].row].colorIndex;
     if (valid.every(n => grid[n.col][n.row].colorIndex === color)) {
-      grid[c][r] = { colorIndex: color, special: 'starflower' };
-      created.push({ col: c, row: r });
+      // Create the starflower in the cleared position
+      grid[c][r] = { colorIndex: -1, special: 'starflower' };
+      results.push({
+        center: { col: c, row: r },
+        ring: valid.map(n => ({ col: n.col, row: n.row })),
+        ringColor: color,
+      });
     }
   }
-  return created;
+  return results;
 }
 
 // ─── Bomb logic ─────────────────────────────────────────────────

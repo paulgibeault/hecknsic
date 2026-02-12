@@ -7,7 +7,7 @@
  */
 
 import {
-  GRID_COLS, GRID_ROWS, HEX_SIZE, PIECE_COLORS,
+  GRID_COLS, GRID_ROWS, HEX_SIZE, PIECE_COLORS, STARFLOWER_COLOR,
   FRAME_COLOR, BOARD_BG_COLOR, TEXT_COLOR,
   HIGHLIGHT_COLOR, CLUSTER_HIGHLIGHT,
 } from './constants.js';
@@ -138,6 +138,26 @@ export function drawFrame(grid, hoverCluster, selectedCluster) {
     }
   }
 
+  // Selection centroid indicator
+  const indicatorCluster = selectedCluster || (hoverCluster && !selectedCluster ? hoverCluster : null);
+  if (indicatorCluster && indicatorCluster.length > 0) {
+    const positions = indicatorCluster.map(h => hexToPixel(h.col, h.row, originX, originY));
+    const cx = positions.reduce((s, p) => s + p.x, 0) / positions.length;
+    const cy = positions.reduce((s, p) => s + p.y, 0) / positions.length;
+    ctx.save();
+    // Glow
+    ctx.beginPath();
+    ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+    ctx.fillStyle = selectedCluster ? 'rgba(255, 255, 255, 0.5)' : 'rgba(255, 255, 200, 0.35)';
+    ctx.fill();
+    // Dot
+    ctx.beginPath();
+    ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+    ctx.fillStyle = selectedCluster ? '#FFFFFF' : 'rgba(255, 255, 200, 0.7)';
+    ctx.fill();
+    ctx.restore();
+  }
+
   // Floating pieces (on top of everything)
   for (const fp of floatingPieces) {
     if (fp.shadow) {
@@ -166,7 +186,7 @@ export function drawFrame(grid, hoverCluster, selectedCluster) {
 // ─── Hex drawing ────────────────────────────────────────────────
 
 function drawHex(cx, cy, size, colorIndex, alpha = 1) {
-  const color = PIECE_COLORS[colorIndex];
+  const color = colorIndex === -1 ? STARFLOWER_COLOR : PIECE_COLORS[colorIndex];
   if (!color) return;
 
   const corners = hexCorners(cx, cy, size);

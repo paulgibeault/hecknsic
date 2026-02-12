@@ -323,12 +323,110 @@ async function postRotationCheck() {
     state = 'idle';
     resetChain();
   } else {
-    detectStarflowers(grid);
-    state = 'selected';
+    const sfResults = detectStarflowers(grid);
+    if (sfResults.length > 0) {
+      state = 'cascading';
+      await animateStarflowerCreation(sfResults);
+      // Check if the new arrangement creates matches
+      const postMatches = findMatches(grid, GRID_COLS, GRID_ROWS);
+      if (postMatches.size > 0) {
+        await runCascade(postMatches);
+        selectedCluster = null;
+        flowerCenter = null;
+        state = 'idle';
+        resetChain();
+        return;
+      }
+      state = 'selected';
+    } else {
+      state = 'selected';
+    }
   }
 }
 
 // ─── Cascade logic ──────────────────────────────────────────────
+
+/**
+ * Animate a starflower being created: flash ring tiles, shrink/fade them,
+ * clear them, gravity, refill.
+ * @param {Array<{center, ring, ringColor}>} sfResults
+ */
+async function animateStarflowerCreation(sfResults) {
+  // Collect all ring positions across all starflowers
+  const allRing = [];
+  for (const sf of sfResults) {
+    for (const pos of sf.ring) {
+      allRing.push(pos);
+    }
+  }
+  if (allRing.length === 0) return;
+
+  // Phase 1: Flash ring tiles bright (200ms)
+  await tween(200, t => {
+    for (const pos of allRing) {
+      if (grid[pos.col]?.[pos.row]) {
+        setCellOverride(pos.col, pos.row, {
+          scale: 1 + 0.15 * t,
+        });
+      }
+    }
+  }, easeOutCubic).promise;
+
+  // Phase 2: Shrink and fade (300ms)
+  await tween(300, t => {
+    for (const pos of allRing) {
+      if (grid[pos.col]?.[pos.row]) {
+        setCellOverride(pos.col, pos.row, {
+          scale: (1.15) * (1 - t * 0.9),
+          alpha: 1 - t,
+        });
+      }
+    }
+  }, easeOutCubic).promise;
+
+  // Clear ring tiles
+  for (const pos of allRing) {
+    grid[pos.col][pos.row] = null;
+  }
+  clearAllOverrides();
+
+  // Animated gravity
+  const fallMap = computeFallDistances();
+  if (fallMap.length > 0) {
+    const maxDist = Math.max(...fallMap.map(f => f.dist));
+    const fallDuration = GRAVITY_MS * maxDist;
+    const { originX, originY } = getOrigin();
+
+    const fallers = fallMap.map(f => {
+      const startPx = hexToPixel(f.col, f.fromRow, originX, originY);
+      const endPx = hexToPixel(f.col, f.toRow, originX, originY);
+      setCellOverride(f.col, f.fromRow, { hidden: true });
+      return {
+        fp: addFloatingPiece({
+          x: startPx.x, y: startPx.y,
+          colorIndex: f.colorIndex,
+          special: f.special,
+          bombTimer: f.bombTimer,
+          scale: 1, alpha: 1, shadow: false,
+        }),
+        startY: startPx.y,
+        endY: endPx.y,
+      };
+    });
+
+    await tween(fallDuration, t => {
+      for (const f of fallers) {
+        f.fp.y = f.startY + (f.endY - f.startY) * t;
+      }
+    }, easeOutBounce).promise;
+
+    for (const f of fallers) removeFloatingPiece(f.fp);
+    clearAllOverrides();
+  }
+
+  applyGravity(grid);
+  fillEmpty(grid);
+}
 
 async function startCascade() {
   state = 'cascading';
@@ -375,7 +473,10 @@ async function runCascade(matches) {
   clearAllOverrides();
 
   // ── Starflower detection at cleared positions ──────────────
-  detectStarflowersAtCleared(grid, matches);
+  const sfMid = detectStarflowersAtCleared(grid, matches);
+  if (sfMid.length > 0) {
+    await animateStarflowerCreation(sfMid);
+  }
 
   // ── Gravity: animate pieces falling ────────────────────────
   const fallMap = computeFallDistances();
@@ -421,7 +522,10 @@ async function runCascade(matches) {
   fillEmpty(grid);
 
   // ── Starflower detection (after board settles) ─────────────
-  detectStarflowers(grid);
+  const sfPost = detectStarflowers(grid);
+  if (sfPost.length > 0) {
+    await animateStarflowerCreation(sfPost);
+  }
 
   advanceChain();
 

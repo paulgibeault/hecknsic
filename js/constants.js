@@ -23,6 +23,11 @@ export const EXTRA_COLORS = [
   { name: 'teal', base: '#20B0B0', light: '#50E0E0', dark: '#106060' },
 ];
 
+// Metallic bronze for starflower pieces (colorIndex = -1, unmatachable)
+export const STARFLOWER_COLOR = {
+  name: 'starflower', base: '#CD7F32', light: '#E8B06F', dark: '#8B5A2B',
+};
+
 // ─── UI ─────────────────────────────────────────────────────────
 export const FRAME_COLOR     = '#2A2D35';
 export const BOARD_BG_COLOR  = '#1A1D25';

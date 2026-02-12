@@ -161,6 +161,7 @@ export function findMatches(grid, cols = GRID_COLS, rows = GRID_ROWS) {
   for (let c = 0; c < cols; c++) {
     for (let r = 0; r < rows; r++) {
       if (grid[c][r] === null) continue;
+      if (grid[c][r].special === 'starflower') continue; // starflowers can't match
       const color = grid[c][r].colorIndex;
 
       for (const dir of axialDirections) {
