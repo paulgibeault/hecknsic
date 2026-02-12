@@ -48,8 +48,8 @@ export const CHAIN_MULTIPLIER_BASE = 1.5;
 export const FALL_SPEED = 0.008;       // cells per ms
 export const MATCH_FLASH_MS  = 500;    // flash + shrink before removal
 export const GRAVITY_MS      = 120;    // per row of falling
-export const ROTATION_POP_MS = 150;    // scale-up "pop"
-export const ROTATION_SETTLE_MS = 250; // settle back "thunk"
+export const ROTATION_POP_MS = 100;    // scale-up "pop"
+export const ROTATION_SETTLE_MS = 200; // settle back "thunk"
 export const SPAWN_DROP_MS   = 200;    // new pieces drop in
 
 // ─── Bombs ──────────────────────────────────────────────────────

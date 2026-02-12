@@ -25,6 +25,13 @@ export function consumeAction() {
 }
 
 /**
+ * Trigger an action programmatically (e.g. from UI buttons).
+ */
+export function triggerAction(type) {
+  pendingAction = { type };
+}
+
+/**
  * Bind event listeners on the canvas.
  */
 export function initInput(canvas) {

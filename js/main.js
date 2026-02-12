@@ -25,7 +25,7 @@ import {
   spawnCreationParticles,
 } from './renderer.js';
 import { hexToPixel, getNeighbors, pixelToHex } from './hex-math.js';
-import { initInput, getHoverCluster, consumeAction, getLastClickPos } from './input.js';
+import { initInput, getHoverCluster, consumeAction, getLastClickPos, triggerAction } from './input.js';
 import { tween, updateTweens, easeOutCubic, easeOutBounce } from './tween.js';
 import {
   resetScore, awardMatch, advanceChain, resetChain,
@@ -52,6 +52,25 @@ let bombQueued = false;
 const canvas = document.getElementById('game');
 initRenderer(canvas);
 initInput(canvas);
+
+// UI bindings
+const controlsEl = document.getElementById('controls');
+document.getElementById('btn-ccw').addEventListener('click', (e) => {
+  e.stopPropagation(); // prevent canvas click
+  triggerAction('rotateCCW');
+});
+document.getElementById('btn-cw').addEventListener('click', (e) => {
+  e.stopPropagation();
+  triggerAction('rotateCW');
+});
+
+function updateControlsVisibility() {
+  if (state === 'selected') {
+    controlsEl.classList.remove('hidden');
+  } else {
+    controlsEl.classList.add('hidden');
+  }
+}
 
 window.addEventListener('resize', () => resize(canvas));
 
@@ -112,6 +131,8 @@ function gameLoop(timestamp) {
   // Draw
   const hover = (state === 'idle') ? getHoverCluster() : null;
   drawFrame(grid, hover, (state === 'selected' ? selectedCluster : null));
+
+  updateControlsVisibility();
 
   requestAnimationFrame(gameLoop);
 }
@@ -195,14 +216,39 @@ async function animateRotation(clockwise) {
   state = 'rotating';
 
   const { originX, originY } = getOrigin();
+  
+  // Determine max steps based on selection type
+  // Starflower ring = 6 steps for full rotation
+  // Cluster / Black Pearl (Y) = 3 steps for full rotation
+  let maxSteps = 3;
+  if (flowerCenter) maxSteps = 6;
 
-  if (flowerCenter) {
-    await animateRingRotation(clockwise, originX, originY);
-  } else if (pearlCenter) {
-    await animateYRotation(clockwise, originX, originY);
-  } else {
-    await animateClusterRotation(clockwise, originX, originY);
+  for (let step = 0; step < maxSteps; step++) {
+    // 1. Animate one step
+    if (flowerCenter) {
+      await animateRingRotation(clockwise, originX, originY);
+    } else if (pearlCenter) {
+      await animateYRotation(clockwise, originX, originY);
+    } else {
+      await animateClusterRotation(clockwise, originX, originY);
+    }
+
+    // 2. Check for matches or specials
+    const matches = findMatches(grid, GRID_COLS, GRID_ROWS);
+    const sfResults = detectStarflowers(grid);
+    const bpResults = detectBlackPearls(grid);
+
+    // If we found anything significant, proceed to post-rotation logic (cascade/etc)
+    // and STOP rotating.
+    if (matches.size > 0 || sfResults.length > 0 || bpResults.length > 0) {
+      await postRotationCheck();
+      return; 
+    }
   }
+
+  // If we loop through all steps without a match, we are back at the start.
+  // Count as a move, tick bombs, etc.
+  await postRotationCheck();
 }
 
 /** Animate 3-hex cluster rotation (original pop-thunk) */
@@ -263,8 +309,6 @@ async function animateClusterRotation(clockwise, originX, originY) {
   for (const fp of floaters) removeFloatingPiece(fp);
   clearAllOverrides();
   rotateCluster(grid, cluster, clockwise);
-
-  await postRotationCheck();
 }
 
 /** Animate 6-hex ring rotation around flower center */
@@ -330,8 +374,6 @@ async function animateRingRotation(clockwise, originX, originY) {
   for (const fp of floaters) removeFloatingPiece(fp);
   clearAllOverrides();
   rotateRing(grid, ring, clockwise);
-
-  await postRotationCheck();
 }
 
 /** Animate 3-hex Y-shape rotation around black pearl center */
@@ -410,8 +452,6 @@ async function animateYRotation(clockwise, originX, originY) {
     grid[yRing[1].col][yRing[1].row] = saved[2];
     grid[yRing[2].col][yRing[2].row] = saved[0];
   }
-
-  await postRotationCheck();
 }
 
 /**

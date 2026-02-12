@@ -27,3 +27,51 @@ html, body {
 ::selection {
   background: transparent;
 }
+
+/* ─── Controls ───────────────────────────────────────────────── */
+.controls {
+  position: absolute;
+  bottom: 20px;
+  left: 0;
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 40px;
+  pointer-events: none; /* Let clicks pass through container */
+  z-index: 100;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.controls.hidden {
+  opacity: 0;
+  transform: translateY(20px);
+  pointer-events: none;
+}
+
+.control-btn {
+  pointer-events: auto; /* Re-enable clicks on buttons */
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: all 0.1s ease;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.control-btn:active {
+  transform: scale(0.92);
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.control-btn svg {
+  pointer-events: none;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
+}
