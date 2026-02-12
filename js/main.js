@@ -22,6 +22,7 @@ import {
   initRenderer, resize, drawFrame, getOrigin,
   setCellOverride, clearAllOverrides,
   addFloatingPiece, removeFloatingPiece,
+  spawnCreationParticles,
 } from './renderer.js';
 import { hexToPixel, getNeighbors, pixelToHex } from './hex-math.js';
 import { initInput, getHoverCluster, consumeAction, getLastClickPos } from './input.js';
@@ -32,6 +33,7 @@ import {
 } from './score.js';
 import {
   detectStarflowers, detectStarflowersAtCleared,
+  detectBlackPearls,
   spawnBomb, tickBombs, countBombs,
 } from './specials.js';
 
@@ -40,6 +42,7 @@ let grid;
 let state = 'idle';  // 'idle' | 'selected' | 'rotating' | 'cascading' | 'gameover'
 let selectedCluster = null;
 let flowerCenter = null;     // {col,row} if a starflower ring is selected
+let pearlCenter = null;      // {col,row} if a black pearl Y-shape is selected
 let lastTime = 0;
 let moveCount = 0;           // total player moves (for bomb spawn timing)
 
@@ -96,6 +99,7 @@ function gameLoop(timestamp) {
           // Clicked same thing → deselect
           selectedCluster = null;
           flowerCenter = null;
+          pearlCenter = null;
           state = 'idle';
         }
         // else: selected something new, stay in 'selected'
@@ -121,21 +125,48 @@ function trySelect() {
   if (!clickPos) {
     selectedCluster = null;
     flowerCenter = null;
+    pearlCenter = null;
     return;
   }
 
-  // Check if the clicked hex is a flower
   const hex = pixelToHex(clickPos.x, clickPos.y, originX, originY);
+
+  // Check if the clicked hex is a black pearl → Y-shape selection
+  if (hex.col >= 0 && hex.col < GRID_COLS &&
+      hex.row >= 0 && hex.row < GRID_ROWS &&
+      grid[hex.col]?.[hex.row]?.special === 'blackpearl') {
+    // Select a Y-shape: pearl center + 3 alternating neighbors
+    const nbrs = getNeighbors(hex.col, hex.row);
+    const inBoundsNbrs = nbrs.filter(n =>
+      n.col >= 0 && n.col < GRID_COLS && n.row >= 0 && n.row < GRID_ROWS
+    );
+    if (inBoundsNbrs.length >= 3) {
+      // Pick alternating neighbors (every other one) for Y-shape
+      // Use even-indexed neighbors: 0, 2, 4 for one Y, 1, 3, 5 for inverted
+      const yHexes = [nbrs[0], nbrs[2], nbrs[4]].filter(n =>
+        n.col >= 0 && n.col < GRID_COLS && n.row >= 0 && n.row < GRID_ROWS
+      );
+      if (yHexes.length === 3) {
+        pearlCenter = { col: hex.col, row: hex.row };
+        flowerCenter = null;
+        selectedCluster = [{ col: hex.col, row: hex.row }, ...yHexes];
+        state = 'selected';
+        return;
+      }
+    }
+  }
+
+  // Check if the clicked hex is a starflower → ring selection
   if (hex.col >= 0 && hex.col < GRID_COLS &&
       hex.row >= 0 && hex.row < GRID_ROWS &&
       grid[hex.col]?.[hex.row]?.special === 'starflower') {
-    // Select the flower ring: center + 6 neighbors
     const nbrs = getNeighbors(hex.col, hex.row);
     const allInBounds = nbrs.every(n =>
       n.col >= 0 && n.col < GRID_COLS && n.row >= 0 && n.row < GRID_ROWS
     );
     if (allInBounds) {
       flowerCenter = { col: hex.col, row: hex.row };
+      pearlCenter = null;
       selectedCluster = [{ col: hex.col, row: hex.row }, ...nbrs];
       state = 'selected';
       return;
@@ -146,11 +177,13 @@ function trySelect() {
   const cluster = getHoverCluster();
   if (cluster) {
     flowerCenter = null;
+    pearlCenter = null;
     selectedCluster = cluster;
     state = 'selected';
   } else {
     selectedCluster = null;
     flowerCenter = null;
+    pearlCenter = null;
   }
 }
 
@@ -164,6 +197,8 @@ async function animateRotation(clockwise) {
 
   if (flowerCenter) {
     await animateRingRotation(clockwise, originX, originY);
+  } else if (pearlCenter) {
+    await animateYRotation(clockwise, originX, originY);
   } else {
     await animateClusterRotation(clockwise, originX, originY);
   }
@@ -298,6 +333,174 @@ async function animateRingRotation(clockwise, originX, originY) {
   await postRotationCheck();
 }
 
+/** Animate 3-hex Y-shape rotation around black pearl center */
+async function animateYRotation(clockwise, originX, originY) {
+  const center = pearlCenter;
+  const nbrs = getNeighbors(center.col, center.row);
+  // Y-shape uses alternating neighbors (0, 2, 4)
+  const yRing = [nbrs[0], nbrs[2], nbrs[4]];
+  const centerPx = hexToPixel(center.col, center.row, originX, originY);
+  const cx = centerPx.x;
+  const cy = centerPx.y;
+
+  const pixelPos = yRing.map(h => hexToPixel(h.col, h.row, originX, originY));
+  const colors = yRing.map(h => grid[h.col][h.row].colorIndex);
+  const specials = yRing.map(h => grid[h.col][h.row].special);
+
+  // Hide Y-ring cells, create floating pieces
+  const floaters = yRing.map((h, i) => {
+    setCellOverride(h.col, h.row, { hidden: true });
+    return addFloatingPiece({
+      x: pixelPos[i].x, y: pixelPos[i].y,
+      colorIndex: colors[i], special: specials[i],
+      scale: 1, alpha: 1, shadow: false,
+    });
+  });
+
+  // Pop
+  await tween(ROTATION_POP_MS, t => {
+    for (const fp of floaters) { fp.scale = 1 + 0.15 * t; fp.shadow = t > 0.3; }
+  }, easeOutCubic).promise;
+
+  // Targets: each piece moves to the next position in the Y
+  const targets = clockwise
+    ? [pixelPos[1], pixelPos[2], pixelPos[0]]
+    : [pixelPos[2], pixelPos[0], pixelPos[1]];
+  const startPos = floaters.map(fp => ({ x: fp.x, y: fp.y }));
+
+  // Arc around center
+  await tween(ROTATION_SETTLE_MS * 0.7, t => {
+    for (let i = 0; i < 3; i++) {
+      const a0 = Math.atan2(startPos[i].y - cy, startPos[i].x - cx);
+      const a1 = Math.atan2(targets[i].y - cy, targets[i].x - cx);
+      let da = a1 - a0;
+      if (clockwise && da > 0) da -= Math.PI * 2;
+      if (!clockwise && da < 0) da += Math.PI * 2;
+      const angle = a0 + da * t;
+      const r0 = Math.hypot(startPos[i].x - cx, startPos[i].y - cy);
+      const r1 = Math.hypot(targets[i].x - cx, targets[i].y - cy);
+      const radius = r0 + (r1 - r0) * t;
+      floaters[i].x = cx + Math.cos(angle) * radius;
+      floaters[i].y = cy + Math.sin(angle) * radius;
+    }
+  }, easeOutCubic).promise;
+
+  // Settle
+  await tween(ROTATION_SETTLE_MS * 0.3, t => {
+    for (let i = 0; i < 3; i++) {
+      floaters[i].x = targets[i].x;
+      floaters[i].y = targets[i].y;
+      floaters[i].scale = 1 + 0.15 * (1 - t);
+      floaters[i].shadow = t < 0.7;
+    }
+  }, easeOutBounce).promise;
+
+  for (const fp of floaters) removeFloatingPiece(fp);
+  clearAllOverrides();
+
+  // Apply the Y-rotation to the grid: rotate the 3 cells
+  const saved = yRing.map(h => grid[h.col][h.row]);
+  if (clockwise) {
+    grid[yRing[0].col][yRing[0].row] = saved[2];
+    grid[yRing[1].col][yRing[1].row] = saved[0];
+    grid[yRing[2].col][yRing[2].row] = saved[1];
+  } else {
+    grid[yRing[0].col][yRing[0].row] = saved[1];
+    grid[yRing[1].col][yRing[1].row] = saved[2];
+    grid[yRing[2].col][yRing[2].row] = saved[0];
+  }
+
+  await postRotationCheck();
+}
+
+/**
+ * Animate black pearl creation: starflower ring implodes into center,
+ * dramatic particle burst, pearl scale-pulse.
+ */
+async function animateBlackPearlCreation(bpResults) {
+  const { originX, originY } = getOrigin();
+
+  for (const bp of bpResults) {
+    const centerPx = hexToPixel(bp.center.col, bp.center.row, originX, originY);
+
+    // Phase 1: Ring implodes — starflower pieces shrink toward center (400ms)
+    await tween(400, t => {
+      for (const pos of bp.ring) {
+        if (grid[pos.col]?.[pos.row]) {
+          const px = hexToPixel(pos.col, pos.row, originX, originY);
+          const dx = (centerPx.x - px.x) * t * 0.4;
+          const dy = (centerPx.y - px.y) * t * 0.4;
+          setCellOverride(pos.col, pos.row, {
+            scale: 1 - t * 0.6,
+            alpha: 1 - t * 0.7,
+            offsetX: dx,
+            offsetY: dy,
+          });
+        }
+      }
+    }, easeOutCubic).promise;
+
+    // Clear the absorbed starflowers
+    for (const pos of bp.ring) {
+      grid[pos.col][pos.row] = null;
+    }
+    clearAllOverrides();
+
+    // Phase 2: Particle burst with deep purple hues
+    spawnCreationParticles(centerPx.x, centerPx.y, 24);
+
+    // Phase 3: Pearl scale-pulse (600ms)
+    await tween(600, t => {
+      let scale;
+      if (t < 0.2) {
+        scale = 1 + 0.6 * (t / 0.2);
+      } else {
+        const settleT = (t - 0.2) / 0.8;
+        scale = 1.6 - 0.6 * settleT;
+      }
+      setCellOverride(bp.center.col, bp.center.row, { scale });
+    }, easeOutCubic).promise;
+
+    clearAllOverrides();
+  }
+
+  // Gravity and refill
+  const fallMap = computeFallDistances();
+  if (fallMap.length > 0) {
+    const maxDist = Math.max(...fallMap.map(f => f.dist));
+    const fallDuration = GRAVITY_MS * maxDist;
+
+    const fallers = fallMap.map(f => {
+      const startPx = hexToPixel(f.col, f.fromRow, originX, originY);
+      const endPx = hexToPixel(f.col, f.toRow, originX, originY);
+      setCellOverride(f.col, f.fromRow, { hidden: true });
+      return {
+        fp: addFloatingPiece({
+          x: startPx.x, y: startPx.y,
+          colorIndex: f.colorIndex,
+          special: f.special,
+          bombTimer: f.bombTimer,
+          scale: 1, alpha: 1, shadow: false,
+        }),
+        startY: startPx.y,
+        endY: endPx.y,
+      };
+    });
+
+    await tween(fallDuration, t => {
+      for (const f of fallers) {
+        f.fp.y = f.startY + (f.endY - f.startY) * t;
+      }
+    }, easeOutBounce).promise;
+
+    for (const f of fallers) removeFloatingPiece(f.fp);
+    clearAllOverrides();
+  }
+
+  applyGravity(grid);
+  fillEmpty(grid);
+}
+
 /** Shared post-rotation logic: tick bombs, cascade or detect specials */
 async function postRotationCheck() {
   moveCount++;
@@ -320,6 +523,7 @@ async function postRotationCheck() {
     await runCascade(matches);
     selectedCluster = null;
     flowerCenter = null;
+    pearlCenter = null;
     state = 'idle';
     resetChain();
   } else {
@@ -327,19 +531,35 @@ async function postRotationCheck() {
     if (sfResults.length > 0) {
       state = 'cascading';
       await animateStarflowerCreation(sfResults);
+
+      // After starflowers created, check for black pearls
+      const bpResults = detectBlackPearls(grid);
+      if (bpResults.length > 0) {
+        await animateBlackPearlCreation(bpResults);
+      }
+
       // Check if the new arrangement creates matches
       const postMatches = findMatches(grid, GRID_COLS, GRID_ROWS);
       if (postMatches.size > 0) {
         await runCascade(postMatches);
         selectedCluster = null;
         flowerCenter = null;
+        pearlCenter = null;
         state = 'idle';
         resetChain();
         return;
       }
       state = 'selected';
     } else {
-      state = 'selected';
+      // No starflowers, but check for black pearls anyway
+      const bpResults = detectBlackPearls(grid);
+      if (bpResults.length > 0) {
+        state = 'cascading';
+        await animateBlackPearlCreation(bpResults);
+        state = 'selected';
+      } else {
+        state = 'selected';
+      }
     }
   }
 }
@@ -354,12 +574,16 @@ async function postRotationCheck() {
 async function animateStarflowerCreation(sfResults) {
   // Collect all ring positions across all starflowers
   const allRing = [];
+  const centers = [];
   for (const sf of sfResults) {
+    centers.push(sf.center);
     for (const pos of sf.ring) {
       allRing.push(pos);
     }
   }
   if (allRing.length === 0) return;
+
+  const { originX, originY } = getOrigin();
 
   // Phase 1: Flash ring tiles bright (200ms)
   await tween(200, t => {
@@ -372,7 +596,7 @@ async function animateStarflowerCreation(sfResults) {
     }
   }, easeOutCubic).promise;
 
-  // Phase 2: Shrink and fade (300ms)
+  // Phase 2: Shrink and fade ring tiles (300ms)
   await tween(300, t => {
     for (const pos of allRing) {
       if (grid[pos.col]?.[pos.row]) {
@@ -390,12 +614,45 @@ async function animateStarflowerCreation(sfResults) {
   }
   clearAllOverrides();
 
+  // ── Phase 3: CELEBRATION — star piece appears with flair ──────
+
+  // Spawn particle bursts from each star center
+  for (const center of centers) {
+    const px = hexToPixel(center.col, center.row, originX, originY);
+    spawnCreationParticles(px.x, px.y, 20);
+  }
+
+  // Star piece pulse: scale up big then settle (500ms)
+  await tween(500, t => {
+    for (const center of centers) {
+      // Sharp pop then smooth settle
+      let scale;
+      if (t < 0.25) {
+        // Rapid expand 1.0 → 1.5
+        scale = 1 + 0.5 * (t / 0.25);
+      } else {
+        // Smooth settle 1.5 → 1.0
+        const settleT = (t - 0.25) / 0.75;
+        scale = 1.5 - 0.5 * settleT;
+      }
+
+      // White flash overlay that fades
+      const flashAlpha = t < 0.2 ? (t / 0.2) * 0.6 : 0.6 * (1 - ((t - 0.2) / 0.8));
+
+      setCellOverride(center.col, center.row, {
+        scale,
+        // We'll encode flash for the renderer as a "glow" via scale
+      });
+    }
+  }, easeOutCubic).promise;
+
+  clearAllOverrides();
+
   // Animated gravity
   const fallMap = computeFallDistances();
   if (fallMap.length > 0) {
     const maxDist = Math.max(...fallMap.map(f => f.dist));
     const fallDuration = GRAVITY_MS * maxDist;
-    const { originX, originY } = getOrigin();
 
     const fallers = fallMap.map(f => {
       const startPx = hexToPixel(f.col, f.fromRow, originX, originY);
@@ -476,6 +733,12 @@ async function runCascade(matches) {
   const sfMid = detectStarflowersAtCleared(grid, matches);
   if (sfMid.length > 0) {
     await animateStarflowerCreation(sfMid);
+
+    // Check for black pearls immediately formed by these new starflowers
+    const bpMid = detectBlackPearls(grid);
+    if (bpMid.length > 0) {
+      await animateBlackPearlCreation(bpMid);
+    }
   }
 
   // ── Gravity: animate pieces falling ────────────────────────
@@ -525,6 +788,12 @@ async function runCascade(matches) {
   const sfPost = detectStarflowers(grid);
   if (sfPost.length > 0) {
     await animateStarflowerCreation(sfPost);
+
+    // After starflowers created, check for black pearls
+    const bpPost = detectBlackPearls(grid);
+    if (bpPost.length > 0) {
+      await animateBlackPearlCreation(bpPost);
+    }
   }
 
   advanceChain();

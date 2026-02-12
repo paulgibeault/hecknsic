@@ -7,7 +7,7 @@
  */
 
 import {
-  GRID_COLS, GRID_ROWS, HEX_SIZE, PIECE_COLORS, STARFLOWER_COLOR,
+  GRID_COLS, GRID_ROWS, HEX_SIZE, PIECE_COLORS, STARFLOWER_COLOR, BLACK_PEARL_COLOR,
   FRAME_COLOR, BOARD_BG_COLOR, TEXT_COLOR,
   HIGHLIGHT_COLOR, CLUSTER_HIGHLIGHT,
 } from './constants.js';
@@ -24,6 +24,9 @@ let cellOverrides = {};
 
 // Free-floating pieces drawn on top (for rotation arcs, etc.)
 let floatingPieces = [];  // { x, y, colorIndex, scale, alpha }
+
+// Creation celebration particles
+let creationParticles = [];  // { x, y, vx, vy, life, maxLife, size, hue }
 
 export function initRenderer(canvas) {
   ctx = canvas.getContext('2d');
@@ -75,6 +78,28 @@ export function addFloatingPiece(piece) {
 export function removeFloatingPiece(piece) {
   const idx = floatingPieces.indexOf(piece);
   if (idx >= 0) floatingPieces.splice(idx, 1);
+}
+
+// ─── Creation Particle API ──────────────────────────────────────
+
+export function spawnCreationParticles(cx, cy, count = 16) {
+  for (let i = 0; i < count; i++) {
+    const angle = (Math.PI * 2 / count) * i + (Math.random() - 0.5) * 0.4;
+    const speed = 1.5 + Math.random() * 2.5;
+    creationParticles.push({
+      x: cx, y: cy,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 1.0,
+      maxLife: 40 + Math.random() * 30,
+      size: 2 + Math.random() * 3,
+      hue: 190 + Math.random() * 40,  // cool steel-blue hues
+    });
+  }
+}
+
+export function clearCreationParticles() {
+  creationParticles = [];
 }
 
 // ─── Main draw ──────────────────────────────────────────────────
@@ -179,6 +204,9 @@ export function drawFrame(grid, hoverCluster, selectedCluster) {
     }
   }
 
+  // Creation celebration particles
+  updateAndDrawParticles();
+
   // HUD
   drawHUD();
 }
@@ -186,7 +214,18 @@ export function drawFrame(grid, hoverCluster, selectedCluster) {
 // ─── Hex drawing ────────────────────────────────────────────────
 
 function drawHex(cx, cy, size, colorIndex, alpha = 1) {
-  const color = colorIndex === -1 ? STARFLOWER_COLOR : PIECE_COLORS[colorIndex];
+  // Starflower pieces get the special metallic rendering
+  if (colorIndex === -1) {
+    drawStarHex(cx, cy, size, alpha);
+    return;
+  }
+  // Black pearl pieces get the obsidian pearl rendering
+  if (colorIndex === -2) {
+    drawBlackPearlHex(cx, cy, size, alpha);
+    return;
+  }
+
+  const color = PIECE_COLORS[colorIndex];
   if (!color) return;
 
   const corners = hexCorners(cx, cy, size);
@@ -235,31 +274,264 @@ function drawHex(cx, cy, size, colorIndex, alpha = 1) {
   ctx.restore();
 }
 
+// ─── Metallic star hex ──────────────────────────────────────────
+
+function drawStarHex(cx, cy, size, alpha = 1) {
+  const color = STARFLOWER_COLOR;
+  const corners = hexCorners(cx, cy, size);
+  const now = Date.now();
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
+  // Clip to hex shape for all effects
+  ctx.beginPath();
+  ctx.moveTo(corners[0].x, corners[0].y);
+  for (let i = 1; i < 6; i++) ctx.lineTo(corners[i].x, corners[i].y);
+  ctx.closePath();
+  ctx.save();
+  ctx.clip();
+
+  // Base fill: dark metallic gradient
+  const baseGrad = ctx.createRadialGradient(
+    cx - size * 0.25, cy - size * 0.25, size * 0.05,
+    cx, cy, size * 1.1
+  );
+  baseGrad.addColorStop(0, color.light);
+  baseGrad.addColorStop(0.45, color.base);
+  baseGrad.addColorStop(1, color.dark);
+  ctx.fillStyle = baseGrad;
+  ctx.fillRect(cx - size, cy - size, size * 2, size * 2);
+
+  // Brushed-metal bands: diagonal linear streaks
+  const bandGrad = ctx.createLinearGradient(
+    cx - size, cy - size, cx + size, cy + size
+  );
+  bandGrad.addColorStop(0.0, 'rgba(255,255,255,0)');
+  bandGrad.addColorStop(0.2, 'rgba(255,255,255,0.06)');
+  bandGrad.addColorStop(0.3, 'rgba(255,255,255,0)');
+  bandGrad.addColorStop(0.45, 'rgba(255,255,255,0.08)');
+  bandGrad.addColorStop(0.55, 'rgba(255,255,255,0)');
+  bandGrad.addColorStop(0.7, 'rgba(255,255,255,0.05)');
+  bandGrad.addColorStop(0.85, 'rgba(255,255,255,0)');
+  bandGrad.addColorStop(1.0, 'rgba(255,255,255,0.04)');
+  ctx.fillStyle = bandGrad;
+  ctx.fillRect(cx - size, cy - size, size * 2, size * 2);
+
+  // Animated shimmer: sweeping highlight that moves across the piece
+  const shimmerPhase = (now % 3000) / 3000;  // 3 second cycle
+  const shimmerX = cx + size * 2 * (shimmerPhase - 0.5);
+  const shimmerGrad = ctx.createRadialGradient(
+    shimmerX, cy - size * 0.3, 0,
+    shimmerX, cy - size * 0.3, size * 0.8
+  );
+  const shimmerAlpha = 0.12 + 0.08 * Math.sin(shimmerPhase * Math.PI * 2);
+  shimmerGrad.addColorStop(0, `rgba(200,220,240,${shimmerAlpha})`);
+  shimmerGrad.addColorStop(1, 'rgba(200,220,240,0)');
+  ctx.fillStyle = shimmerGrad;
+  ctx.fillRect(cx - size, cy - size, size * 2, size * 2);
+
+  // Strong specular highlight top-left
+  const specGrad = ctx.createRadialGradient(
+    cx - size * 0.35, cy - size * 0.35, 0,
+    cx - size * 0.35, cy - size * 0.35, size * 0.7
+  );
+  specGrad.addColorStop(0, 'rgba(255,255,255,0.4)');
+  specGrad.addColorStop(0.3, 'rgba(255,255,255,0.12)');
+  specGrad.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = specGrad;
+  ctx.fillRect(cx - size, cy - size, size * 2, size * 2);
+
+  ctx.restore(); // un-clip
+
+  // Polished edge: bright inner stroke + dark outer stroke
+  ctx.beginPath();
+  ctx.moveTo(corners[0].x, corners[0].y);
+  for (let i = 1; i < 6; i++) ctx.lineTo(corners[i].x, corners[i].y);
+  ctx.closePath();
+  ctx.strokeStyle = 'rgba(160,180,200,0.35)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(corners[0].x, corners[0].y);
+  for (let i = 1; i < 6; i++) ctx.lineTo(corners[i].x, corners[i].y);
+  ctx.closePath();
+  ctx.strokeStyle = color.dark;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // ── Etched 6-pointed star symbol ──────────────────────────
+  drawEtchedStar(cx, cy, size * 0.48, now);
+
+  ctx.restore();
+}
+
+/** Draw a 6-pointed star (Star of David shape) etched into metal */
+function drawEtchedStar(cx, cy, radius, now) {
+  const shimmer = 0.7 + 0.15 * Math.sin(now / 800);
+
+  ctx.save();
+
+  // Build 6-pointed star path (two overlapping triangles)
+  ctx.beginPath();
+  for (let tri = 0; tri < 2; tri++) {
+    const offset = tri * (Math.PI / 6);
+    for (let i = 0; i < 3; i++) {
+      const angle = offset + (Math.PI * 2 / 3) * i - Math.PI / 2;
+      const x = cx + Math.cos(angle) * radius;
+      const y = cy + Math.sin(angle) * radius;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+  }
+
+  // Inner glow fill
+  const starGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+  starGrad.addColorStop(0, `rgba(200,215,230,${0.35 * shimmer})`);
+  starGrad.addColorStop(0.6, `rgba(150,170,190,${0.2 * shimmer})`);
+  starGrad.addColorStop(1, `rgba(100,120,140,${0.1 * shimmer})`);
+  ctx.fillStyle = starGrad;
+  ctx.fill();
+
+  // Etched outline
+  ctx.strokeStyle = `rgba(200,220,240,${0.5 * shimmer})`;
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  // Bright center dot
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius * 0.12, 0, Math.PI * 2);
+  ctx.fillStyle = `rgba(220,235,250,${0.6 * shimmer})`;
+  ctx.fill();
+
+  ctx.restore();
+}
+
+// ─── Black Pearl hex ────────────────────────────────────────────
+
+function drawBlackPearlHex(cx, cy, size, alpha = 1) {
+  const color = BLACK_PEARL_COLOR;
+  const corners = hexCorners(cx, cy, size);
+  const now = Date.now();
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
+  // Clip to hex shape
+  ctx.beginPath();
+  ctx.moveTo(corners[0].x, corners[0].y);
+  for (let i = 1; i < 6; i++) ctx.lineTo(corners[i].x, corners[i].y);
+  ctx.closePath();
+  ctx.save();
+  ctx.clip();
+
+  // Base fill: deep obsidian gradient
+  const baseGrad = ctx.createRadialGradient(
+    cx - size * 0.2, cy - size * 0.2, size * 0.05,
+    cx, cy, size * 1.1
+  );
+  baseGrad.addColorStop(0, color.light);
+  baseGrad.addColorStop(0.4, color.base);
+  baseGrad.addColorStop(1, color.dark);
+  ctx.fillStyle = baseGrad;
+  ctx.fillRect(cx - size, cy - size, size * 2, size * 2);
+
+  // Iridescent sheen: shifting purple/teal overtone
+  const hueShift = (now % 5000) / 5000;
+  const iriHue1 = 270 + hueShift * 60;  // purple → blue
+  const iriHue2 = 160 + hueShift * 40;  // teal → green
+  const iriGrad = ctx.createLinearGradient(
+    cx - size, cy - size, cx + size, cy + size
+  );
+  iriGrad.addColorStop(0.0, `hsla(${iriHue1}, 40%, 25%, 0.3)`);
+  iriGrad.addColorStop(0.5, `hsla(${iriHue2}, 35%, 20%, 0.15)`);
+  iriGrad.addColorStop(1.0, `hsla(${iriHue1 + 30}, 40%, 25%, 0.25)`);
+  ctx.fillStyle = iriGrad;
+  ctx.fillRect(cx - size, cy - size, size * 2, size * 2);
+
+  // Pearlescent shimmer sweep
+  const shimmerPhase = (now % 4000) / 4000;
+  const shimmerX = cx + size * 2.5 * (shimmerPhase - 0.5);
+  const shimmerGrad = ctx.createRadialGradient(
+    shimmerX, cy - size * 0.2, 0,
+    shimmerX, cy - size * 0.2, size * 0.9
+  );
+  const shimmerAlpha = 0.08 + 0.06 * Math.sin(shimmerPhase * Math.PI * 2);
+  shimmerGrad.addColorStop(0, `rgba(180,160,220,${shimmerAlpha})`);
+  shimmerGrad.addColorStop(1, 'rgba(180,160,220,0)');
+  ctx.fillStyle = shimmerGrad;
+  ctx.fillRect(cx - size, cy - size, size * 2, size * 2);
+
+  // Specular highlight top-left
+  const specGrad = ctx.createRadialGradient(
+    cx - size * 0.3, cy - size * 0.3, 0,
+    cx - size * 0.3, cy - size * 0.3, size * 0.6
+  );
+  specGrad.addColorStop(0, 'rgba(200,190,220,0.3)');
+  specGrad.addColorStop(0.4, 'rgba(200,190,220,0.08)');
+  specGrad.addColorStop(1, 'rgba(200,190,220,0)');
+  ctx.fillStyle = specGrad;
+  ctx.fillRect(cx - size, cy - size, size * 2, size * 2);
+
+  ctx.restore(); // un-clip
+
+  // Edge strokes
+  ctx.beginPath();
+  ctx.moveTo(corners[0].x, corners[0].y);
+  for (let i = 1; i < 6; i++) ctx.lineTo(corners[i].x, corners[i].y);
+  ctx.closePath();
+  ctx.strokeStyle = 'rgba(140,120,180,0.3)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(corners[0].x, corners[0].y);
+  for (let i = 1; i < 6; i++) ctx.lineTo(corners[i].x, corners[i].y);
+  ctx.closePath();
+  ctx.strokeStyle = color.dark;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // ── Glowing pearl orb in center ──────────────────────────
+  const orbPulse = 0.8 + 0.2 * Math.sin(now / 600);
+  const orbRadius = size * 0.22;
+
+  // Outer glow
+  const glowGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, orbRadius * 3);
+  glowGrad.addColorStop(0, `rgba(180,160,220,${0.25 * orbPulse})`);
+  glowGrad.addColorStop(0.5, `rgba(140,100,200,${0.1 * orbPulse})`);
+  glowGrad.addColorStop(1, 'rgba(140,100,200,0)');
+  ctx.fillStyle = glowGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, orbRadius * 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Pearl sphere
+  const orbGrad = ctx.createRadialGradient(
+    cx - orbRadius * 0.3, cy - orbRadius * 0.3, orbRadius * 0.1,
+    cx, cy, orbRadius
+  );
+  orbGrad.addColorStop(0, `rgba(220,210,240,${0.9 * orbPulse})`);
+  orbGrad.addColorStop(0.5, `rgba(80,60,120,${0.8 * orbPulse})`);
+  orbGrad.addColorStop(1, `rgba(20,10,40,${0.7 * orbPulse})`);
+  ctx.fillStyle = orbGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, orbRadius, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
 function drawSpecialIndicator(cx, cy, radius, type, alpha = 1, bombTimer) {
+  // Starflower/blackpearl indicators are built into their hex renderers
+  if (type === 'starflower' || type === 'blackpearl') return;
+
   ctx.save();
   ctx.globalAlpha = alpha * 0.9;
 
   switch (type) {
-    case 'starflower': {
-      // 6 petals
-      const petalR = radius * 0.4;
-      for (let i = 0; i < 6; i++) {
-        const angle = (Math.PI / 3) * i;
-        const px = cx + Math.cos(angle) * radius * 0.5;
-        const py = cy + Math.sin(angle) * radius * 0.5;
-        ctx.beginPath();
-        ctx.ellipse(px, py, petalR, petalR * 0.6,
-                    angle, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255, 200, 255, 0.8)';
-        ctx.fill();
-      }
-      // Center dot
-      ctx.beginPath();
-      ctx.arc(cx, cy, radius * 0.2, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255, 255, 150, 0.9)';
-      ctx.fill();
-      break;
-    }
     case 'bomb': {
       // Dark circle background
       ctx.beginPath();
@@ -291,6 +563,46 @@ function drawSpecialIndicator(cx, cy, radius, type, alpha = 1, bombTimer) {
   }
 
   ctx.restore();
+}
+
+// ─── Creation Particles ─────────────────────────────────────────
+
+function updateAndDrawParticles() {
+  if (creationParticles.length === 0) return;
+
+  for (let i = creationParticles.length - 1; i >= 0; i--) {
+    const p = creationParticles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vx *= 0.96;  // drag
+    p.vy *= 0.96;
+    p.life -= 1 / p.maxLife;
+
+    if (p.life <= 0) {
+      creationParticles.splice(i, 1);
+      continue;
+    }
+
+    ctx.save();
+    ctx.globalAlpha = p.life * 0.9;
+
+    // Bright diamond spark
+    const s = p.size * p.life;
+    ctx.translate(p.x, p.y);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = `hsla(${p.hue}, 50%, 80%, 1)`;
+    ctx.fillRect(-s / 2, -s / 2, s, s);
+
+    // Glow around spark
+    ctx.rotate(-Math.PI / 4);
+    const glowGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, s * 3);
+    glowGrad.addColorStop(0, `hsla(${p.hue}, 60%, 85%, ${0.3 * p.life})`);
+    glowGrad.addColorStop(1, `hsla(${p.hue}, 60%, 85%, 0)`);
+    ctx.fillStyle = glowGrad;
+    ctx.fillRect(-s * 3, -s * 3, s * 6, s * 6);
+
+    ctx.restore();
+  }
 }
 
 function drawHexOutline(cx, cy, size, strokeColor, lineWidth) {

@@ -23,9 +23,14 @@ export const EXTRA_COLORS = [
   { name: 'teal', base: '#20B0B0', light: '#50E0E0', dark: '#106060' },
 ];
 
-// Metallic bronze for starflower pieces (colorIndex = -1, unmatachable)
+// Bright silver chrome for starflower pieces (colorIndex = -1, unmatchable)
 export const STARFLOWER_COLOR = {
-  name: 'starflower', base: '#CD7F32', light: '#E8B06F', dark: '#8B5A2B',
+  name: 'starflower', base: '#A0ADB8', light: '#D4DEE6', dark: '#4A5560',
+};
+
+// Deep obsidian for black pearl pieces (colorIndex = -2, unmatchable)
+export const BLACK_PEARL_COLOR = {
+  name: 'blackpearl', base: '#1A1520', light: '#3A2840', dark: '#0A0810',
 };
 
 // ─── UI ─────────────────────────────────────────────────────────

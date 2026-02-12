@@ -27,26 +27,62 @@ export function detectStarflowers(grid) {
   for (let c = 0; c < GRID_COLS; c++) {
     for (let r = 0; r < GRID_ROWS; r++) {
       const cell = grid[c][r];
-      if (!cell || cell.special) continue;
+      if (!cell || cell.special === 'starflower' || cell.special === 'blackpearl') continue;
 
       const nbrs = getNeighbors(c, r);
       const valid = nbrs.filter(n =>
-        inBounds(n) && grid[n.col][n.row] && !grid[n.col][n.row].special
+        inBounds(n) && grid[n.col][n.row] && grid[n.col][n.row].special !== 'starflower' && grid[n.col][n.row].special !== 'blackpearl'
       );
       if (valid.length !== 6) continue;
 
       const ringColor = grid[valid[0].col][valid[0].row].colorIndex;
-      if (ringColor !== cell.colorIndex &&
+      if (ringColor >= 0 && ringColor !== cell.colorIndex &&
           valid.every(n => grid[n.col][n.row].colorIndex === ringColor)) {
-        // Mark center as starflower (metallic bronze, no matchable color)
+        // Mark center as starflower (silver chrome, unmatchable)
         cell.colorIndex = -1;
         cell.special = 'starflower';
+        delete cell.bombTimer;  // clean up if center was a bomb
         results.push({
           center: { col: c, row: r },
           ring: valid.map(n => ({ col: n.col, row: n.row })),
           ringColor,
         });
       }
+    }
+  }
+  return results;
+}
+
+// ─── Black Pearl detection ──────────────────────────────────────
+
+/**
+ * Board-scan: if any hex has all 6 in-bounds neighbors as starflowers
+ * → center becomes a black pearl, starflower ring is absorbed.
+ *
+ * Returns data for animation (ring positions to clear).
+ * @returns {Array<{center, ring}>}
+ */
+export function detectBlackPearls(grid) {
+  const results = [];
+  for (let c = 0; c < GRID_COLS; c++) {
+    for (let r = 0; r < GRID_ROWS; r++) {
+      const cell = grid[c][r];
+      if (!cell || cell.special === 'blackpearl') continue;
+
+      const nbrs = getNeighbors(c, r);
+      const validStars = nbrs.filter(n =>
+        inBounds(n) && grid[n.col][n.row]?.special === 'starflower'
+      );
+      if (validStars.length !== 6) continue;
+
+      // All 6 neighbors are starflowers → create black pearl
+      cell.colorIndex = -2;
+      cell.special = 'blackpearl';
+      delete cell.bombTimer;
+      results.push({
+        center: { col: c, row: r },
+        ring: validStars.map(n => ({ col: n.col, row: n.row })),
+      });
     }
   }
   return results;
@@ -68,12 +104,13 @@ export function detectStarflowersAtCleared(grid, clearedKeys) {
     const valid = nbrs.filter(n =>
       inBounds(n) &&
       grid[n.col][n.row] !== null &&
+      grid[n.col][n.row].special !== 'starflower' &&
       !clearedKeys.has(`${n.col},${n.row}`)
     );
     if (valid.length !== 6) continue;
 
     const color = grid[valid[0].col][valid[0].row].colorIndex;
-    if (valid.every(n => grid[n.col][n.row].colorIndex === color)) {
+    if (color >= 0 && valid.every(n => grid[n.col][n.row].colorIndex === color)) {
       // Create the starflower in the cleared position
       grid[c][r] = { colorIndex: -1, special: 'starflower' };
       results.push({
