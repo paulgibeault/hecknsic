@@ -638,7 +638,7 @@ function drawHUD() {
   ctx.fillStyle = TEXT_COLOR;
   ctx.font = 'bold 22px "Segoe UI", system-ui, sans-serif';
   ctx.textAlign = 'left';
-  ctx.fillText('HEXIC', 16, 28);
+  ctx.fillText('Hecknsic', 16, 28);
 
   ctx.textAlign = 'right';
   ctx.font = 'bold 20px "Segoe UI", system-ui, sans-serif';

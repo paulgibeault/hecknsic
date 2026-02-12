@@ -1,5 +1,5 @@
-Hexic Game Report
-Summary: Hexic is a single-player tile-matching puzzle game created by Alexey Pajitnov, the designer of Tetris. Players rotate clusters of three hexagonal tiles to form matches, clear the board, and create special bonus pieces. The ultimate goal is to form a cluster of "Black Pearls." 
+Hecknsic Game Report
+Summary: Hecknsic is a single-player tile-matching puzzle game created by Alexey Pajitnov, the designer of Tetris. Players rotate clusters of three hexagonal tiles to form matches, clear the board, and create special bonus pieces. The ultimate goal is to form a cluster of "Black Pearls." 
 1. Visual Design & Interface
 Board Layout: The game features a board of 90 connected hexagonal tiles of various colors, forming an imperfect square (columns alternate between 8 and 10 pieces).
 Aesthetic: The visual style is clean and vibrant, often described as "razor-sharp" and colorful. The interface includes a score counter, a bomb timer (when active), and mode-specific indicators (e.g., a countdown clock in Timed mode).

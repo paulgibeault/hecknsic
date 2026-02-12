@@ -1,8 +1,8 @@
-# **Hexic Evolved: Game Design and Technical Specification**
+# **Hecknsic: Game Design and Technical Specification**
 
-## **1\. Introduction to Hexic Evolved**
+## **1\. Introduction to Hecknsic**
 
-Hexic Evolved is a captivating puzzle game designed for modern web platforms, building upon the core mechanics of the classic Hexic puzzle game. Players rotate clusters of colored hexagons on a grid to form matches of three or more, aiming for high scores through strategic play, combo chains, and the smart use of special pieces. The game emphasizes challenging puzzles, dynamic visuals, and engaging competitive multiplayer, all synchronized with moody, vibey music.
+Hecknsic is a captivating puzzle game designed for modern web platforms, building upon the core mechanics of the classic Hecknsic puzzle game. Players rotate clusters of colored hexagons on a grid to form matches of three or more, aiming for high scores through strategic play, combo chains, and the smart use of special pieces. The game emphasizes challenging puzzles, dynamic visuals, and engaging competitive multiplayer, all synchronized with moody, vibey music.
 
 ## **2\. Game Rules and Gameplay Mechanics**
 
@@ -166,4 +166,4 @@ The game will utilize a highly optimized game loop for smooth performance:
 * **Object-Oriented Design**: While React is functional, game logic and objects (e.g., Hexagon, GameBoard, Player) can be structured using classes. Phaser/PixiJS naturally support this with concepts like Phaser.Scene and game objects.  
 * **Scene Management**: Phaser's scene management will allow for organizing different parts of the game (e.g., Main Menu, Multiplayer Lobby, Game Screen) into separate, manageable classes.
 
-This comprehensive overview should serve as a strong foundation for designing the software architecture and proceeding with the development of "Hexic Evolved."
+This comprehensive overview should serve as a strong foundation for designing the software architecture and proceeding with the development of "Hecknsic."

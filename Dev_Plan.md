@@ -1,6 +1,6 @@
-# Hexic Evolved — Development Plan
+# Hecknsic — Development Plan
 
-A clean, phase-gated blueprint to recreate the speed and vibe of Hexic HD as a standalone web page. Every phase ends with a playable milestone.
+A clean, phase-gated blueprint to recreate the speed and vibe of Hecknsic HD as a standalone web page. Every phase ends with a playable milestone.
 
 ---
 
@@ -112,7 +112,7 @@ Rotating CCW: `[A, B, C] → [B, C, A]`.
 
 ---
 
-## 4. Visual Spec (Matching Original Hexic HD)
+## 4. Visual Spec (Matching Original Hecknsic HD)
 
 ### 4.1 Overall Look
 
@@ -146,7 +146,7 @@ Each hex is drawn as a 6-sided polygon with:
 
 ```
 ┌──────────────────────────────────┐
-│  HEXIC          SCORE: 200       │  ← top bar
+│  Hecknsic          SCORE: 200       │  ← top bar
 ├──────────────────────────────────┤
 │ LEVEL │                          │
 │   1   │                          │
@@ -265,7 +265,7 @@ Each hex is drawn as a 6-sided polygon with:
 
 ## 6. Guiding Principles
 
-1. **No frameworks until proven necessary.** Vanilla JS + Canvas 2D can do everything Hexic needs. Add a library only when hand-rolling would take >2 hours and produce worse results.
+1. **No frameworks until proven necessary.** Vanilla JS + Canvas 2D can do everything Hecknsic needs. Add a library only when hand-rolling would take >2 hours and produce worse results.
 2. **Playable at every phase.** Never go more than a few days without something you can click on and enjoy.
 3. **Juice > features.** A board with 5 colors and great animations beats a board with 8 colors and no polish.
 4. **Data drives rendering.** The grid array is the source of truth. The renderer reads it every frame. Never store game state in DOM or canvas.
