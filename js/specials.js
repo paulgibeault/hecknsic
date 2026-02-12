@@ -13,6 +13,58 @@
 import { GRID_COLS, GRID_ROWS } from './constants.js';
 import { getNeighbors } from './hex-math.js';
 
+// ─── Multiplier Tile Detection ──────────────────────────────────
+
+/**
+ * Detects connected clusters of multiplier tiles (size >= 3).
+ * Returns array of Sets, where each Set contains "col,row" keys of a connected components.
+ * These can be same-color (Color Nuke) or mixed-color (Explosion).
+ * @returns {Array<Set<string>>}
+ */
+export function detectMultiplierClusters(grid) {
+  const clusters = [];
+  const visited = new Set();
+
+  for (let c = 0; c < GRID_COLS; c++) {
+    for (let r = 0; r < GRID_ROWS; r++) {
+      const key = `${c},${r}`;
+      if (visited.has(key)) continue;
+
+      const cell = grid[c][r];
+      if (cell && cell.special === 'multiplier') {
+        // Start a BFS/DFS to find component
+        const cluster = new Set();
+        const stack = [{ col: c, row: r }];
+        visited.add(key);
+        cluster.add(key);
+
+        while (stack.length > 0) {
+          const curr = stack.pop();
+          const nbrs = getNeighbors(curr.col, curr.row);
+          for (const n of nbrs) {
+            if (n.col >= 0 && n.col < GRID_COLS && n.row >= 0 && n.row < GRID_ROWS) {
+              const nKey = `${n.col},${n.row}`;
+              if (!visited.has(nKey)) {
+                const nCell = grid[n.col][n.row];
+                if (nCell && nCell.special === 'multiplier') {
+                  visited.add(nKey);
+                  cluster.add(nKey);
+                  stack.push(n);
+                }
+              }
+            }
+          }
+        }
+
+        if (cluster.size >= 3) {
+          clusters.push(cluster);
+        }
+      }
+    }
+  }
+  return clusters;
+}
+
 // ─── Starflower detection ───────────────────────────────────────
 
 /**

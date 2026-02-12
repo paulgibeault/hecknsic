@@ -2,7 +2,7 @@
  * board.js — Grid state management: create, fill, access.
  */
 
-import { GRID_COLS, GRID_ROWS, PIECE_COLORS } from './constants.js';
+import { GRID_COLS, GRID_ROWS, PIECE_COLORS, BOMB_INITIAL_TIMER } from './constants.js';
 
 /**
  * A cell in the grid.
@@ -218,19 +218,27 @@ export function applyGravity(grid, cols = GRID_COLS, rows = GRID_ROWS) {
 /**
  * Fill null cells at the top of each column with new random pieces.
  * Returns array of {col, row} that were filled.
+ * @param {boolean} spawnBomb - If true, one of the new pieces will be a bomb.
  */
-export function fillEmpty(grid, cols = GRID_COLS, rows = GRID_ROWS, numColors = PIECE_COLORS.length) {
+export function fillEmpty(grid, cols = GRID_COLS, rows = GRID_ROWS, numColors = PIECE_COLORS.length, spawnBomb = false) {
   const filled = [];
   for (let c = 0; c < cols; c++) {
     for (let r = 0; r < rows; r++) {
       if (grid[c][r] === null) {
         grid[c][r] = {
           colorIndex: Math.floor(Math.random() * numColors),
-          special: null,
+          special: Math.random() < 0.05 ? 'multiplier' : null,
         };
         filled.push({ col: c, row: r });
       }
     }
   }
+
+  if (spawnBomb && filled.length > 0) {
+    const pick = filled[Math.floor(Math.random() * filled.length)];
+    grid[pick.col][pick.row].special = 'bomb';
+    grid[pick.col][pick.row].bombTimer = BOMB_INITIAL_TIMER;
+  }
+
   return filled;
 }

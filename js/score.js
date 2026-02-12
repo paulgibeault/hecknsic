@@ -25,10 +25,10 @@ export function resetScore() {
  * Award points for a set of matched cells.
  * @param {number} matchSize — how many cells in this match group
  */
-export function awardMatch(matchSize) {
+export function awardMatch(matchSize, bonusMultiplier = 1) {
   // Look up base or extrapolate for larger matches
   const base = SCORE_BASE[matchSize] ?? matchSize * 10;
-  const multiplier = Math.pow(CHAIN_MULTIPLIER_BASE, chainLevel);
+  const multiplier = Math.pow(CHAIN_MULTIPLIER_BASE, chainLevel) * bonusMultiplier;
   const points = Math.round(base * multiplier);
   score += points;
   comboCount++;

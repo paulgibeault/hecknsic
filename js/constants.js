@@ -54,6 +54,6 @@ export const SPAWN_DROP_MS   = 200;    // new pieces drop in
 
 // ─── Bombs ──────────────────────────────────────────────────────
 export const BOMB_INITIAL_TIMER  = 15; // moves before bomb explodes
-export const BOMB_SPAWN_INTERVAL = 20; // spawn a bomb every N moves
+export const BOMB_SPAWN_INTERVAL = 2; // spawn a bomb every N moves
 export const BOMB_MIN_TIMER      = 8;  // shortest timer at high difficulty
 

@@ -137,7 +137,9 @@ export function drawFrame(grid, hoverCluster, selectedCluster) {
       drawHex(x + oOffX, y + oOffY, drawSize, cell.colorIndex, oAlpha);
 
       // Special piece indicator
-      if (cell.special) {
+      if (cell.special === 'multiplier') {
+        drawStarStamp(x + oOffX, y + oOffY, drawSize, oAlpha);
+      } else if (cell.special) {
         drawSpecialIndicator(x + oOffX, y + oOffY, drawSize * 0.5, cell.special, oAlpha, cell.bombTimer);
       }
 
@@ -199,7 +201,9 @@ export function drawFrame(grid, hoverCluster, selectedCluster) {
     }
     const fpSize = (HEX_SIZE - 1) * (fp.scale ?? 1);
     drawHex(fp.x, fp.y, fpSize, fp.colorIndex, fp.alpha ?? 1);
-    if (fp.special) {
+    if (fp.special === 'multiplier') {
+      drawStarStamp(fp.x, fp.y, fpSize, fp.alpha ?? 1);
+    } else if (fp.special) {
       drawSpecialIndicator(fp.x, fp.y, fpSize * 0.5, fp.special, fp.alpha ?? 1, fp.bombTimer);
     }
   }
@@ -654,4 +658,42 @@ function drawHUD() {
 function isInCluster(col, row, cluster) {
   if (!cluster) return false;
   return cluster.some(h => h.col === col && h.row === row);
+}
+
+// ─── Multiplier Star Stamp ──────────────────────────────────────
+
+function drawStarStamp(cx, cy, size, alpha = 1) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
+  // Draw a 5-pointed star in the center
+  const outerR = size * 0.4;
+  const innerR = size * 0.16;
+  const angleOffset = -Math.PI / 2; // Point up
+
+  ctx.beginPath();
+  for (let i = 0; i < 5; i++) {
+    const angle = angleOffset + (Math.PI * 2 * i) / 5;
+    const x = cx + Math.cos(angle) * outerR;
+    const y = cy + Math.sin(angle) * outerR;
+    ctx.lineTo(x, y);
+
+    const innerAngle = angle + Math.PI / 5;
+    const ix = cx + Math.cos(innerAngle) * innerR;
+    const iy = cy + Math.sin(innerAngle) * innerR;
+    ctx.lineTo(ix, iy);
+  }
+  ctx.closePath();
+
+  // White fill with some transparency
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  ctx.fill();
+
+  // Slight glow
+  ctx.shadowColor = '#FFFFFF';
+  ctx.shadowBlur = 6;
+  ctx.stroke(); // stroke to apply shadow to edge
+  ctx.shadowBlur = 0;
+
+  ctx.restore();
 }

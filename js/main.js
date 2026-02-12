@@ -12,7 +12,7 @@ import {
   GRID_COLS, GRID_ROWS,
   MATCH_FLASH_MS, GRAVITY_MS,
   ROTATION_POP_MS, ROTATION_SETTLE_MS,
-  BOMB_INITIAL_TIMER, BOMB_SPAWN_INTERVAL,
+  BOMB_SPAWN_INTERVAL,
 } from './constants.js';
 import {
   createGrid, rotateCluster, rotateRing, findMatches,
@@ -33,8 +33,8 @@ import {
 } from './score.js';
 import {
   detectStarflowers, detectStarflowersAtCleared,
-  detectBlackPearls,
-  spawnBomb, tickBombs, countBombs,
+  detectBlackPearls, detectMultiplierClusters,
+  tickBombs, countBombs,
 } from './specials.js';
 
 // ─── Game state ─────────────────────────────────────────────────
@@ -45,6 +45,7 @@ let flowerCenter = null;     // {col,row} if a starflower ring is selected
 let pearlCenter = null;      // {col,row} if a black pearl Y-shape is selected
 let lastTime = 0;
 let moveCount = 0;           // total player moves (for bomb spawn timing)
+let bombQueued = false;
 
 // ─── Bootstrap ──────────────────────────────────────────────────
 
@@ -498,7 +499,8 @@ async function animateBlackPearlCreation(bpResults) {
   }
 
   applyGravity(grid);
-  fillEmpty(grid);
+  const filled = fillEmpty(grid, undefined, undefined, undefined, bombQueued);
+  if (bombQueued && filled.length > 0) bombQueued = false;
 }
 
 /** Shared post-rotation logic: tick bombs, cascade or detect specials */
@@ -512,9 +514,9 @@ async function postRotationCheck() {
     return;
   }
 
-  // Spawn bombs periodically
+  // Spawn bombs periodically (queue for next fill)
   if (moveCount > 0 && moveCount % BOMB_SPAWN_INTERVAL === 0) {
-    spawnBomb(grid, BOMB_INITIAL_TIMER);
+    bombQueued = true;
   }
 
   const matches = findMatches(grid, GRID_COLS, GRID_ROWS);
@@ -682,7 +684,8 @@ async function animateStarflowerCreation(sfResults) {
   }
 
   applyGravity(grid);
-  fillEmpty(grid);
+  const filled = fillEmpty(grid, undefined, undefined, undefined, bombQueued);
+  if (bombQueued && filled.length > 0) bombQueued = false;
 }
 
 async function startCascade() {
@@ -704,25 +707,118 @@ async function startCascade() {
   resetChain();
 }
 
-async function runCascade(matches) {
+async function runCascade(initialMatches) {
+  const pendingMatches = new Set(initialMatches);
+  const multiplierClusters = detectMultiplierClusters(grid);
+
+  // 1. Merge multiplier clusters into pendingMatches
+  const explosionSources = [];
+  const colorNukeColors = new Set();
+  let scoreBonus = 1;
+
+  for (const cluster of multiplierClusters) {
+    const clusterArr = Array.from(cluster);
+    // Add to pending
+    for (const key of cluster) pendingMatches.add(key);
+
+    // Analyze colors
+    const colors = new Set(clusterArr.map(k => {
+      const [c,r] = k.split(',').map(Number);
+      return grid[c][r].colorIndex;
+    }));
+
+    if (colors.size === 1) {
+      // Same color -> Color Nuke
+      colorNukeColors.add(colors.values().next().value);
+    } else {
+      // Mixed color -> Explosion
+      const firstKey = clusterArr[0];
+      const [c,r] = firstKey.split(',').map(Number);
+      // Use center of mass or just all cells as source?
+      // Requirement: "clear those pieces along with every single tile immediately surrounding them"
+      // We will add all cluster cells as explosion sources
+      for (const k of cluster) explosionSources.push(k);
+    }
+    scoreBonus += 0.5 * cluster.size; // Bonus for multiplier clusters
+  }
+
+  // 2. Check for Bomb + Multiplier (Same Color) in pendingMatches
+  //    (This covers the case where findMatches caught them or they were added above)
+  const colorPresence = {}; // colorIndex -> { hasBomb: bool, hasMultiplier: bool }
+  for (const key of pendingMatches) {
+    const [c,r] = key.split(',').map(Number);
+    const cell = grid[c][r];
+    if (!cell) continue;
+    const color = cell.colorIndex;
+    if (!colorPresence[color]) colorPresence[color] = { hasBomb: false, hasMultiplier: false };
+    
+    if (cell.special === 'bomb') colorPresence[color].hasBomb = true;
+    if (cell.special === 'multiplier') {
+      colorPresence[color].hasMultiplier = true;
+      scoreBonus += 0.5; // Bonus for any cleared multiplier
+    }
+  }
+
+  for (const color in colorPresence) {
+    if (colorPresence[color].hasBomb && colorPresence[color].hasMultiplier) {
+      colorNukeColors.add(Number(color));
+    }
+  }
+
+  // 3. Apply Actions (expand pendingMatches)
+  
+  // Color Nuke
+  if (colorNukeColors.size > 0) {
+    for (let c = 0; c < GRID_COLS; c++) {
+      for (let r = 0; r < GRID_ROWS; r++) {
+        if (grid[c][r] && colorNukeColors.has(grid[c][r].colorIndex)) {
+            // Exclude starflowers/blackpearls from color nuke?
+            // "clearing the bomb and all other tiles of that color"
+            // Usually specials like starflower (color -1) aren't targeted by normal colors (0-5).
+            if (grid[c][r].colorIndex >= 0) {
+              pendingMatches.add(`${c},${r}`);
+            }
+        }
+      }
+    }
+  }
+
+  // Explosion
+  for (const srcKey of explosionSources) {
+    const [c, r] = srcKey.split(',').map(Number);
+    const nbrs = getNeighbors(c, r);
+    for (const n of nbrs) {
+      if (n.col >= 0 && n.col < GRID_COLS && n.row >= 0 && n.row < GRID_ROWS) {
+        // Explode neighbors (unless they are indestuctible?)
+        if (grid[n.col][n.row] && grid[n.col][n.row].special !== 'blackpearl') { // Assume pearls are hard
+             pendingMatches.add(`${n.col},${n.row}`);
+        }
+      }
+    }
+  }
+
+  const matches = pendingMatches;
+
   // ── Flash matched cells ────────────────────────────────────
   await tween(MATCH_FLASH_MS, t => {
     for (const key of matches) {
       const [c, r] = key.split(',').map(Number);
-      if (t < 0.3) {
-        setCellOverride(c, r, { scale: 1 + 0.1 * (t / 0.3) });
-      } else {
-        const fadeT = (t - 0.3) / 0.7;
-        setCellOverride(c, r, {
-          scale: 1.1 * (1 - fadeT * 0.8),
-          alpha: 1 - fadeT,
-        });
+      if (grid[c][r]) { // Start check: cell might be null if processed? No, we haven't cleared yet.
+        if (t < 0.3) {
+          setCellOverride(c, r, { scale: 1 + 0.1 * (t / 0.3) });
+        } else {
+          const fadeT = (t - 0.3) / 0.7;
+          setCellOverride(c, r, {
+            scale: 1.1 * (1 - fadeT * 0.8),
+            alpha: 1 - fadeT,
+          });
+        }
       }
     }
   }, easeOutCubic).promise;
 
   // ── Remove matched cells ───────────────────────────────────
-  awardMatch(matches.size);
+  awardMatch(matches.size, scoreBonus);
   for (const key of matches) {
     const [c, r] = key.split(',').map(Number);
     grid[c][r] = null;
@@ -782,7 +878,8 @@ async function runCascade(matches) {
 
   // Commit gravity and fill
   applyGravity(grid);
-  fillEmpty(grid);
+  const filled = fillEmpty(grid, undefined, undefined, undefined, bombQueued);
+  if (bombQueued && filled.length > 0) bombQueued = false;
 
   // ── Starflower detection (after board settles) ─────────────
   const sfPost = detectStarflowers(grid);
