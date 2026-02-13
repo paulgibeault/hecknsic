@@ -1,4 +1,10 @@
-# Hecknsic
+<div align="center">
+  <img src="icon.png" width="160" alt="Hecknsic Logo" />
+  <h1>Hecknsic</h1>
+  <a href="https://paulgibeault.github.io/hecknsic/" target="_blank">
+    <img src="https://img.shields.io/badge/▶-Launch_Game-7000ff?style=for-the-badge&color=282c34&logoColor=61dafb" alt="Launch Game" />
+  </a>
+</div>
 
 Hecknsic is a captivating puzzle game designed for modern web platforms, inspired by the classic Hexic HD. Players rotate clusters of colored hexagons on a grid to form matches of three or more, aiming for high scores through strategic play, combo chains, and the smart use of special pieces.
 
