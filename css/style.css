@@ -67,6 +67,20 @@ html, body {
   -webkit-tap-highlight-color: transparent;
 }
 
+.btn-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.key-hint {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.8);
+  margin-top: 2px;
+}
+
 .control-btn:active {
   transform: scale(0.92);
   background: rgba(255, 255, 255, 0.2);

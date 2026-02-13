@@ -9,22 +9,89 @@
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon.png">
   <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/overlays.css">
 </head>
 <body>
   <canvas id="game"></canvas>
   
+  <!-- Help Button -->
+  <button id="btn-help" class="icon-btn help-btn" aria-label="How to Play" style="right: 20px;">
+    ?
+  </button>
+  
+  <!-- High Score Button -->
+  <button id="btn-scores" class="icon-btn scores-btn" aria-label="High Scores" style="right: 70px;">
+    🏆
+  </button>
+
+  <!-- High Score Modal -->
+  <div id="modal-scores" class="modal hidden">
+    <div class="modal-content">
+      <h2>High Scores</h2>
+      <ul id="high-scores-list" class="high-scores-list">
+        <!-- Populated by JS -->
+        <li>No scores yet!</li>
+      </ul>
+      <button id="btn-close-scores" class="start-btn">Close</button>
+    </div>
+  </div>
+
+  <!-- How to Play Modal -->
+  <div id="modal-help" class="modal hidden">
+    <div class="modal-content">
+      <h2>How to Play</h2>
+      <p><strong>Objective:</strong> Rotate clusters of 3 hexagons to create matches of 3 or more same-colored pieces.</p>
+      
+      <h3>Controls</h3>
+      <ul>
+        <li><strong>Select:</strong> Click or Tap a cluster.</li>
+        <li><strong>Rotate:</strong> 
+          <ul>
+            <li>On-screen arrow buttons</li>
+            <li><strong>Q</strong> / <strong>E</strong> keys</li>
+            <li><strong>Left</strong> / <strong>Right</strong> arrow keys</li>
+          </ul>
+        </li>
+      </ul>
+
+      <h3>Special Pieces</h3>
+      <div class="legend">
+        <div class="legend-item">
+          <span class="icon star">★</span>
+          <span><strong>Starflower:</strong> Form a ring of 6 same-colored tiles. Rotates like a dial (one step).</span>
+        </div>
+        <div class="legend-item">
+          <span class="icon pearl">Y</span>
+          <span><strong>Black Pearl:</strong> Form a ring of 6 Starflowers. Rotate in a Y-shape. Matches clear everything.</span>
+        </div>
+        <div class="legend-item">
+          <span class="icon bomb">💣</span>
+          <span><strong>Bomb:</strong> Clear before the timer runs out!</span>
+        </div>
+      </div>
+
+      <button id="btn-close-help" class="start-btn">Got it!</button>
+    </div>
+  </div>
+
   <div class="controls hidden" id="controls">
     <button id="btn-ccw" class="control-btn" aria-label="Rotate Left">
-      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
-        <path d="M3 3v5h5"></path>
-      </svg>
+      <div class="btn-content">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+          <path d="M3 3v5h5"></path>
+        </svg>
+        <span class="key-hint">Q</span>
+      </div>
     </button>
     <button id="btn-cw" class="control-btn" aria-label="Rotate Right">
-      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path>
-        <path d="M21 3v5h-5"></path>
-      </svg>
+      <div class="btn-content">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path>
+          <path d="M21 3v5h-5"></path>
+        </svg>
+        <span class="key-hint">E</span>
+      </div>
     </button>
   </div>
 
