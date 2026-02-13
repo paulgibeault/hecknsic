@@ -108,18 +108,24 @@ export function rotateCluster(grid, cluster, clockwise) {
     const saved = { ...cells[0] };
     cells[0].colorIndex = cells[2].colorIndex;
     cells[0].special = cells[2].special;
+    cells[0].bombTimer = cells[2].bombTimer;
     cells[2].colorIndex = cells[1].colorIndex;
     cells[2].special = cells[1].special;
+    cells[2].bombTimer = cells[1].bombTimer;
     cells[1].colorIndex = saved.colorIndex;
     cells[1].special = saved.special;
+    cells[1].bombTimer = saved.bombTimer;
   } else {
     const saved = { ...cells[0] };
     cells[0].colorIndex = cells[1].colorIndex;
     cells[0].special = cells[1].special;
+    cells[0].bombTimer = cells[1].bombTimer;
     cells[1].colorIndex = cells[2].colorIndex;
     cells[1].special = cells[2].special;
+    cells[1].bombTimer = cells[2].bombTimer;
     cells[2].colorIndex = saved.colorIndex;
     cells[2].special = saved.special;
+    cells[2].bombTimer = saved.bombTimer;
   }
 }
 
@@ -132,21 +138,25 @@ export function rotateCluster(grid, cluster, clockwise) {
 export function rotateRing(grid, ring, clockwise) {
   const cells = ring.map(h => grid[h.col][h.row]);
   if (clockwise) {
-    const saved = { colorIndex: cells[5].colorIndex, special: cells[5].special };
+    const saved = { colorIndex: cells[5].colorIndex, special: cells[5].special, bombTimer: cells[5].bombTimer };
     for (let i = 5; i > 0; i--) {
       cells[i].colorIndex = cells[i - 1].colorIndex;
       cells[i].special = cells[i - 1].special;
+      cells[i].bombTimer = cells[i - 1].bombTimer;
     }
     cells[0].colorIndex = saved.colorIndex;
     cells[0].special = saved.special;
+    cells[0].bombTimer = saved.bombTimer;
   } else {
-    const saved = { colorIndex: cells[0].colorIndex, special: cells[0].special };
+    const saved = { colorIndex: cells[0].colorIndex, special: cells[0].special, bombTimer: cells[0].bombTimer };
     for (let i = 0; i < 5; i++) {
       cells[i].colorIndex = cells[i + 1].colorIndex;
       cells[i].special = cells[i + 1].special;
+      cells[i].bombTimer = cells[i + 1].bombTimer;
     }
     cells[5].colorIndex = saved.colorIndex;
     cells[5].special = saved.special;
+    cells[5].bombTimer = saved.bombTimer;
   }
 }
 

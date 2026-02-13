@@ -640,7 +640,7 @@ function roundRect(ctx, x, y, w, h, r) {
 function drawHUD() {
   // Logo
   if (logoImg.complete && logoImg.naturalWidth > 0) {
-    const scale = 0.063; // Reduced by 30% from 0.09
+    const scale = 0.085; // Increased size
     const w = logoImg.width * scale;
     const h = logoImg.height * scale;
     // Draw logo

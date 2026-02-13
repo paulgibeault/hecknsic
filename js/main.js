@@ -58,6 +58,13 @@ let bombQueued = false;
 
 // ─── Bootstrap ──────────────────────────────────────────────────
 
+// DEBUG: Expose internals
+window.debug = {
+  getGrid: () => grid,
+  getState: () => state,
+  runPostRotation: () => postRotationCheck(),
+};
+
 const canvas = document.getElementById('game');
 initRenderer(canvas);
 initInput(canvas);
@@ -762,7 +769,9 @@ async function animateStarflowerCreation(sfResults) {
   }, easeOutCubic).promise;
 
   // Clear ring tiles
+  console.log('Clearing ring tiles. Count:', allRing.length);
   for (const pos of allRing) {
+    console.log(`Clearing ${pos.col},${pos.row}. Was:`, grid[pos.col][pos.row]);
     grid[pos.col][pos.row] = null;
   }
   clearAllOverrides();
@@ -775,7 +784,16 @@ async function animateStarflowerCreation(sfResults) {
     spawnCreationParticles(px.x, px.y, 20);
   }
 
-  // Star piece pulse: scale up big then settle (500ms)
+  // Mutate center to be a Starflower
+  for (const center of centers) {
+    if (grid[center.col] && grid[center.col][center.row]) {
+      grid[center.col][center.row].colorIndex = -1;
+      grid[center.col][center.row].special = 'starflower';
+      delete grid[center.col][center.row].bombTimer;
+    }
+  }
+
+  // Star piece pulse: scale up big then settle
   await tween(500, t => {
     for (const center of centers) {
       // Sharp pop then smooth settle
@@ -789,12 +807,8 @@ async function animateStarflowerCreation(sfResults) {
         scale = 1.5 - 0.5 * settleT;
       }
 
-      // White flash overlay that fades
-      const flashAlpha = t < 0.2 ? (t / 0.2) * 0.6 : 0.6 * (1 - ((t - 0.2) / 0.8));
-
       setCellOverride(center.col, center.row, {
         scale,
-        // We'll encode flash for the renderer as a "glow" via scale
       });
     }
   }, easeOutCubic).promise;
@@ -837,6 +851,8 @@ async function animateStarflowerCreation(sfResults) {
   applyGravity(grid);
   const filled = fillEmpty(grid, undefined, undefined, undefined, bombQueued);
   if (bombQueued && filled.length > 0) bombQueued = false;
+
+
 }
 
 async function startCascade() {
