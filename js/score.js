@@ -21,6 +21,13 @@ export function resetScore() {
   comboCount = 0;
 }
 
+export function restoreScore(saved) {
+  score = saved.score ?? 0;
+  displayScore = saved.displayScore ?? 0;
+  chainLevel = saved.chainLevel ?? 0;
+  comboCount = saved.comboCount ?? 0;
+}
+
 /**
  * Award points for a set of matched cells.
  * @param {number} matchSize — how many cells in this match group

@@ -91,9 +91,7 @@ export function detectStarflowers(grid) {
       if (ringColor >= 0 && ringColor !== cell.colorIndex &&
           valid.every(n => grid[n.col][n.row].colorIndex === ringColor)) {
         // Mark center as starflower (silver chrome, unmatchable)
-        cell.colorIndex = -1;
-        cell.special = 'starflower';
-        delete cell.bombTimer;  // clean up if center was a bomb
+        // calculate center but do not mutate grid yet
         results.push({
           center: { col: c, row: r },
           ring: valid.map(n => ({ col: n.col, row: n.row })),

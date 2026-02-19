@@ -34,6 +34,16 @@ export function triggerAction(type) {
 /**
  * Bind event listeners on the canvas.
  */
+let keyBindings = {
+  rotateCW: 'q',
+  rotateCCW: 'e',
+};
+
+export function setKeyBindings(bindings) {
+  if (bindings.rotateCW) keyBindings.rotateCW = bindings.rotateCW;
+  if (bindings.rotateCCW) keyBindings.rotateCCW = bindings.rotateCCW;
+}
+
 export function initInput(canvas) {
   canvas.addEventListener('mousemove', e => {
     const rect = canvas.getBoundingClientRect();
@@ -77,13 +87,30 @@ export function initInput(canvas) {
 
   // Keyboard
   window.addEventListener('keydown', e => {
+    const key = e.key.toLowerCase();
+    
+    // Configurable keys
+    if (key === keyBindings.rotateCW.toLowerCase()) {
+      pendingAction = { type: 'rotateCW' };
+      return;
+    }
+    if (key === keyBindings.rotateCCW.toLowerCase()) {
+      pendingAction = { type: 'rotateCCW' };
+      return;
+    }
+
+    // Hardcoded aliases (Arrow keys)
+    // "Inverted" logic: Left Arrow -> CW (based on Q mapping), Right Arrow -> CCW (based on E mapping)
+    if (e.key === 'ArrowLeft') {
+      pendingAction = { type: 'rotateCW' };
+      return;
+    }
+    if (e.key === 'ArrowRight') {
+      pendingAction = { type: 'rotateCCW' };
+      return;
+    }
+
     switch (e.key) {
-      case 'q': case 'Q':
-        pendingAction = { type: 'rotateCW' };
-        break;
-      case 'e': case 'E':
-        pendingAction = { type: 'rotateCCW' };
-        break;
       case ' ':
       case 'Enter':
         e.preventDefault();

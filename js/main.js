@@ -25,21 +25,30 @@ import {
   spawnCreationParticles,
 } from './renderer.js';
 import { hexToPixel, getNeighbors, pixelToHex, findClusterAtPixel } from './hex-math.js';
-import { initInput, getHoverCluster, consumeAction, getLastClickPos, triggerAction } from './input.js';
+import {
+  initInput, getHoverCluster, consumeAction, getLastClickPos, triggerAction,
+  setKeyBindings
+} from './input.js';
 import { tween, updateTweens, easeOutCubic, easeOutBounce } from './tween.js';
 import {
   resetScore, awardMatch, advanceChain, resetChain,
-  updateDisplayScore,
+  updateDisplayScore, restoreScore,
+  getScore, getDisplayScore, getChainLevel, getComboCount
 } from './score.js';
 import {
   detectStarflowers, detectStarflowersAtCleared,
   detectBlackPearls, detectMultiplierClusters,
   tickBombs, countBombs,
 } from './specials.js';
+import {
+  saveGameState, loadGameState, clearGameState,
+  addHighScore, getHighScores, loadSettings
+} from './storage.js';
 
 // ─── Game state ─────────────────────────────────────────────────
 let grid;
 let state = 'idle';  // 'idle' | 'selected' | 'rotating' | 'cascading' | 'gameover'
+let isPaused = false;
 let selectedCluster = null;
 let flowerCenter = null;     // {col,row} if a starflower ring is selected
 let pearlCenter = null;      // {col,row} if a black pearl Y-shape is selected
@@ -49,23 +58,84 @@ let bombQueued = false;
 
 // ─── Bootstrap ──────────────────────────────────────────────────
 
+// DEBUG: Expose internals
+window.debug = {
+  getGrid: () => grid,
+  getState: () => state,
+  runPostRotation: () => postRotationCheck(),
+};
+
 const canvas = document.getElementById('game');
 initRenderer(canvas);
 initInput(canvas);
+
+// Apply settings
+const settings = loadSettings();
+setKeyBindings(settings.keyBindings);
 
 // UI bindings
 const controlsEl = document.getElementById('controls');
 document.getElementById('btn-ccw').addEventListener('click', (e) => {
   e.stopPropagation(); // prevent canvas click
-  triggerAction('rotateCCW');
+  triggerAction('rotateCW');
 });
 document.getElementById('btn-cw').addEventListener('click', (e) => {
   e.stopPropagation();
-  triggerAction('rotateCW');
+  triggerAction('rotateCCW');
 });
 
+// Help Modal bindings
+const nonGameUI = ['btn-help', 'modal-help', 'btn-close-help'];
+document.getElementById('btn-help').addEventListener('click', (e) => {
+  e.stopPropagation();
+  isPaused = true;
+  document.getElementById('modal-help').classList.remove('hidden');
+});
+document.getElementById('btn-close-help').addEventListener('click', (e) => {
+  e.stopPropagation();
+  isPaused = false;
+  document.getElementById('modal-help').classList.add('hidden');
+  // Reset lastTime to avoid huge dt jump
+  lastTime = performance.now();
+});
+
+// Scores Modal bindings
+document.getElementById('btn-scores').addEventListener('click', (e) => {
+  e.stopPropagation();
+  isPaused = true;
+  showHighScores();
+  document.getElementById('modal-scores').classList.remove('hidden');
+});
+document.getElementById('btn-close-scores').addEventListener('click', (e) => {
+  e.stopPropagation();
+  isPaused = false;
+  document.getElementById('modal-scores').classList.add('hidden');
+  lastTime = performance.now();
+});
+
+function showHighScores() {
+  const list = document.getElementById('high-scores-list');
+  const scores = getHighScores();
+  
+  if (scores.length === 0) {
+    list.innerHTML = '<li>No scores yet!</li>';
+    return;
+  }
+
+  list.innerHTML = scores.map((s, i) => {
+    const date = new Date(s.date).toLocaleDateString();
+    return `
+      <li>
+        <span class="rank">#${i + 1}</span>
+        <span class="score">${s.score.toLocaleString()}</span>
+        <span class="date">${date}</span>
+      </li>
+    `;
+  }).join('');
+}
+
 function updateControlsVisibility() {
-  if (state === 'selected') {
+  if (state === 'selected' && !isPaused) {
     controlsEl.classList.remove('hidden');
   } else {
     controlsEl.classList.add('hidden');
@@ -74,15 +144,30 @@ function updateControlsVisibility() {
 
 window.addEventListener('resize', () => resize(canvas));
 
-resetScore();
-grid = createGrid();
-state = 'idle';
+// Attempt to load saved state
+const savedState = loadGameState();
+if (savedState) {
+  grid = savedState.grid;
+  restoreScore(savedState);
+  moveCount = savedState.moveCount || 0;
+  state = 'idle';
+  console.log('Game state loaded.');
+} else {
+  resetScore();
+  grid = createGrid();
+  state = 'idle';
+}
 
 requestAnimationFrame(gameLoop);
 
 // ─── Game loop ──────────────────────────────────────────────────
 
 function gameLoop(timestamp) {
+  if (isPaused) {
+    requestAnimationFrame(gameLoop);
+    return;
+  }
+
   const dt = lastTime ? timestamp - lastTime : 16;
   lastTime = timestamp;
 
@@ -93,6 +178,11 @@ function gameLoop(timestamp) {
   if (state === 'gameover') {
     drawFrame(grid, null, null);
     drawGameOver();
+    
+    // One-time game over handling (hacky: check if we just entered this state)
+    // tailored for this loop pattern: we return early, so just check a flag or run once
+    // We'll rely on the fact that we handle state transitions elsewhere
+    
     requestAnimationFrame(gameLoop);
     return;
   }
@@ -225,7 +315,7 @@ async function animateRotation(clockwise) {
   // Starflower ring = 6 steps for full rotation
   // Cluster / Black Pearl (Y) = 3 steps for full rotation
   let maxSteps = 3;
-  if (flowerCenter) maxSteps = 6;
+  if (flowerCenter) maxSteps = 1;
 
   for (let step = 0; step < maxSteps; step++) {
     // 1. Animate one step
@@ -548,13 +638,14 @@ async function animateBlackPearlCreation(bpResults) {
 }
 
 /** Shared post-rotation logic: tick bombs, cascade or detect specials */
+/** Shared post-rotation logic: tick bombs, cascade or detect specials */
 async function postRotationCheck() {
   moveCount++;
 
   // Tick bomb timers
   const bombExpired = tickBombs(grid);
   if (bombExpired) {
-    state = 'gameover';
+    handleGameOver();
     return;
   }
 
@@ -572,6 +663,7 @@ async function postRotationCheck() {
     pearlCenter = null;
     state = 'idle';
     resetChain();
+    saveGame();
   } else {
     const sfResults = detectStarflowers(grid);
     if (sfResults.length > 0) {
@@ -593,9 +685,11 @@ async function postRotationCheck() {
         pearlCenter = null;
         state = 'idle';
         resetChain();
+        saveGame();
         return;
       }
       state = 'selected';
+      saveGame();
     } else {
       // No starflowers, but check for black pearls anyway
       const bpResults = detectBlackPearls(grid);
@@ -603,11 +697,31 @@ async function postRotationCheck() {
         state = 'cascading';
         await animateBlackPearlCreation(bpResults);
         state = 'selected';
+        saveGame();
       } else {
         state = 'selected';
+        saveGame();
       }
     }
   }
+}
+
+function handleGameOver() {
+  state = 'gameover';
+  clearGameState();
+  addHighScore(getScore());
+  console.log('Game Over. High score saved.');
+}
+
+function saveGame() {
+  saveGameState({
+    grid,
+    moveCount,
+    score: getScore(),
+    displayScore: getDisplayScore(),
+    chainLevel: getChainLevel(),
+    comboCount: getComboCount(),
+  });
 }
 
 // ─── Cascade logic ──────────────────────────────────────────────
@@ -655,7 +769,9 @@ async function animateStarflowerCreation(sfResults) {
   }, easeOutCubic).promise;
 
   // Clear ring tiles
+  console.log('Clearing ring tiles. Count:', allRing.length);
   for (const pos of allRing) {
+    console.log(`Clearing ${pos.col},${pos.row}. Was:`, grid[pos.col][pos.row]);
     grid[pos.col][pos.row] = null;
   }
   clearAllOverrides();
@@ -668,7 +784,16 @@ async function animateStarflowerCreation(sfResults) {
     spawnCreationParticles(px.x, px.y, 20);
   }
 
-  // Star piece pulse: scale up big then settle (500ms)
+  // Mutate center to be a Starflower
+  for (const center of centers) {
+    if (grid[center.col] && grid[center.col][center.row]) {
+      grid[center.col][center.row].colorIndex = -1;
+      grid[center.col][center.row].special = 'starflower';
+      delete grid[center.col][center.row].bombTimer;
+    }
+  }
+
+  // Star piece pulse: scale up big then settle
   await tween(500, t => {
     for (const center of centers) {
       // Sharp pop then smooth settle
@@ -682,12 +807,8 @@ async function animateStarflowerCreation(sfResults) {
         scale = 1.5 - 0.5 * settleT;
       }
 
-      // White flash overlay that fades
-      const flashAlpha = t < 0.2 ? (t / 0.2) * 0.6 : 0.6 * (1 - ((t - 0.2) / 0.8));
-
       setCellOverride(center.col, center.row, {
         scale,
-        // We'll encode flash for the renderer as a "glow" via scale
       });
     }
   }, easeOutCubic).promise;
@@ -730,6 +851,8 @@ async function animateStarflowerCreation(sfResults) {
   applyGravity(grid);
   const filled = fillEmpty(grid, undefined, undefined, undefined, bombQueued);
   if (bombQueued && filled.length > 0) bombQueued = false;
+
+
 }
 
 async function startCascade() {

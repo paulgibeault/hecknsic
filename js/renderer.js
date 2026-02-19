@@ -28,6 +28,9 @@ let floatingPieces = [];  // { x, y, colorIndex, scale, alpha }
 // Creation celebration particles
 let creationParticles = [];  // { x, y, vx, vy, life, maxLife, size, hue }
 
+const logoImg = new Image();
+logoImg.src = 'img/logo_header.png';
+
 export function initRenderer(canvas) {
   ctx = canvas.getContext('2d');
   resize(canvas);
@@ -48,7 +51,7 @@ function recalcOrigin() {
   const gridPixelW = (GRID_COLS - 1) * HEX_SIZE * 1.5 + HEX_SIZE * 2;
   const gridPixelH = GRID_ROWS * Math.sqrt(3) * HEX_SIZE + Math.sqrt(3) / 2 * HEX_SIZE;
   originX = (canvasW - gridPixelW) / 2 + HEX_SIZE;
-  originY = (canvasH - gridPixelH) / 2 + Math.sqrt(3) / 2 * HEX_SIZE + 30;
+  originY = (canvasH - gridPixelH) / 2 + Math.sqrt(3) / 2 * HEX_SIZE + 60; // Increased top margin
 }
 
 export function getOrigin() {
@@ -306,7 +309,7 @@ function drawStarHex(cx, cy, size, alpha = 1) {
   // 3D Faceted Star
   const innerR = size * 0.25; // center radius where points meet
   const outerR = size * 0.95; // tips of the star
-
+  
   for (let i = 0; i < 6; i++) {
     const angle = (Math.PI / 3) * i - Math.PI / 6; // Points at corners
     // Coordinates
@@ -635,14 +638,26 @@ function roundRect(ctx, x, y, w, h, r) {
 // ─── HUD ────────────────────────────────────────────────────────
 
 function drawHUD() {
-  ctx.fillStyle = TEXT_COLOR;
-  ctx.font = 'bold 22px "Segoe UI", system-ui, sans-serif';
-  ctx.textAlign = 'left';
-  ctx.fillText('Hecknsic', 16, 28);
+  // Logo
+  if (logoImg.complete && logoImg.naturalWidth > 0) {
+    const scale = 0.085; // Increased size
+    const w = logoImg.width * scale;
+    const h = logoImg.height * scale;
+    // Draw logo
+    ctx.drawImage(logoImg, 16, 5, w, h);
+  } else {
+    // Fallback if not loaded
+    ctx.fillStyle = TEXT_COLOR;
+    ctx.font = 'bold 22px "Segoe UI", system-ui, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('Hecknsic', 16, 28);
+  }
 
   ctx.textAlign = 'right';
+  ctx.fillStyle = TEXT_COLOR;
   ctx.font = 'bold 20px "Segoe UI", system-ui, sans-serif';
-  ctx.fillText(`SCORE  ${getDisplayScore()}`, canvasW - 16, 28);
+  // Move score left to avoid overlap with top-right buttons
+  ctx.fillText(`SCORE  ${getDisplayScore()}`, canvasW - 140, 35);
 
   const combo = getComboCount();
   if (combo > 1) {
