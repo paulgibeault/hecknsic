@@ -74,6 +74,27 @@
     </div>
   </div>
 
+  <!-- Game Over Modal -->
+  <div id="modal-gameover" class="modal hidden">
+    <div class="modal-content text-center">
+      <h2 style="color: #ff4444; border-color: #ff4444;">GAME OVER</h2>
+      <p class="gameover-message">💣 A bomb exploded!</p>
+      
+      <div class="score-summary">
+        <div class="score-row">
+          <span>Final Score</span>
+          <span id="go-score" class="val">0</span>
+        </div>
+        <div class="score-row">
+          <span>Best Combo</span>
+          <span id="go-combo" class="val">0</span>
+        </div>
+      </div>
+
+      <button id="btn-newgame" class="start-btn" style="background: #ff4444;">New Game</button>
+    </div>
+  </div>
+
   <div class="controls hidden" id="controls">
     <button id="btn-ccw" class="control-btn" aria-label="Rotate Left">
       <div class="btn-content">
