@@ -151,3 +151,40 @@
   color: #888;
   font-size: 0.9em;
 }
+/* Game Over Modal */
+.gameover-message {
+  font-size: 1.2rem;
+  margin-bottom: 25px;
+  color: #ccc;
+  text-align: center;
+}
+
+.score-summary {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.score-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 1.1rem;
+}
+.score-row:last-child {
+  margin-bottom: 0;
+}
+
+.score-row span:first-child {
+  color: #8fa0c0;
+}
+
+.score-row .val {
+  font-weight: bold;
+  color: #fff;
+}
+
+.text-center {
+  text-align: center;
+}

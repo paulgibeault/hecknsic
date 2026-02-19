@@ -113,6 +113,12 @@ document.getElementById('btn-close-scores').addEventListener('click', (e) => {
   lastTime = performance.now();
 });
 
+// Game Over Modal bindings
+document.getElementById('btn-newgame').addEventListener('click', (e) => {
+  e.stopPropagation();
+  resetGame();
+});
+
 function showHighScores() {
   const list = document.getElementById('high-scores-list');
   const scores = getHighScores();
@@ -175,9 +181,10 @@ function gameLoop(timestamp) {
   updateDisplayScore(dt);
 
   // Game over: just render, no input
+  // Game Over: just render, no input
   if (state === 'gameover') {
     drawFrame(grid, null, null);
-    drawGameOver();
+    // drawGameOver(); // Handled by DOM overlay now
     
     // One-time game over handling (hacky: check if we just entered this state)
     // tailored for this loop pattern: we return early, so just check a flag or run once
@@ -706,11 +713,90 @@ async function postRotationCheck() {
   }
 }
 
-function handleGameOver() {
+async function handleGameOver() {
   state = 'gameover';
   clearGameState();
   addHighScore(getScore());
   console.log('Game Over. High score saved.');
+
+  // 1. Show Game Over Modal
+  document.getElementById('go-score').textContent = getScore().toLocaleString();
+  document.getElementById('go-combo').textContent = `x${getComboCount()}`;
+  document.getElementById('modal-gameover').classList.remove('hidden');
+
+  // 2. Explode the board!
+  const { originX, originY } = getOrigin();
+  const floaters = [];
+
+  for (let c = 0; c < GRID_COLS; c++) {
+    for (let r = 0; r < GRID_ROWS; r++) {
+      if (grid[c][r]) {
+        const px = hexToPixel(c, r, originX, originY);
+        
+        // Create a floater that flies away from center
+        const dx = px.x - (originX + (GRID_COLS * 30)); // Rough center approx
+        const dy = px.y - (originY + (GRID_ROWS * 30));
+        const angle = Math.atan2(dy, dx);
+        const speed = 10 + Math.random() * 20;
+
+        const fp = addFloatingPiece({
+          x: px.x, y: px.y,
+          colorIndex: grid[c][r].colorIndex,
+          special: grid[c][r].special,
+          scale: 1, alpha: 1, shadow: false
+        });
+        
+        // We'll attach velocity to the floater object strictly for this animation loop
+        // (renderer doesn't use vx/vy, so we'll tween or manually update)
+        // Let's use a quick tween to blast them off
+        floaters.push({
+            fp, 
+            vx: Math.cos(angle) * speed, 
+            vy: Math.sin(angle) * speed,
+            rot: (Math.random() - 0.5) * 0.5
+        });
+        
+        // Clear grid cell immediately so drawFrame doesn't show it
+        grid[c][r] = null;
+      }
+    }
+  }
+
+  // Animate the explosion
+  // We can do a custom loop or just a tween that updates them
+  await tween(1500, t => {
+    for (const item of floaters) {
+      item.fp.x += item.vx;
+      item.fp.y += item.vy;
+      item.fp.vy += 0.5; // Gravity
+      item.fp.alpha = 1 - t; // Fade out
+      // item.fp.rotation += item.rot; // Renderer doesn't support rotation yet, but that's fine
+    }
+  }, easeOutCubic).promise;
+
+  // Cleanup
+  for (const item of floaters) {
+    removeFloatingPiece(item.fp);
+  }
+}
+
+function resetGame() {
+  resetScore();
+  resetChain();
+  grid = createGrid();
+  state = 'idle';
+  moveCount = 0;
+  bombQueued = false;
+  selectedCluster = null;
+  flowerCenter = null;
+  pearlCenter = null;
+  
+  document.getElementById('modal-gameover').classList.add('hidden');
+  
+  // Ensure we are unpaused and running
+  isPaused = false;
+  lastTime = performance.now();
+  requestAnimationFrame(gameLoop); // Might already be running, but safe to ensure
 }
 
 function saveGame() {
@@ -1119,22 +1205,6 @@ function clustersMatch(a, b) {
 
 // ─── Game Over overlay ──────────────────────────────────────────
 
-function drawGameOver() {
-  const canvas = document.getElementById('game');
-  const ctx = canvas.getContext('2d');
-  ctx.save();
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+// ─── Game Over overlay ──────────────────────────────────────────
 
-  ctx.fillStyle = '#FF4040';
-  ctx.font = 'bold 48px "Segoe UI", system-ui, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 - 30);
-
-  ctx.fillStyle = '#D0D0D8';
-  ctx.font = '20px "Segoe UI", system-ui, sans-serif';
-  ctx.fillText('💣 A bomb exploded!', canvas.width / 2, canvas.height / 2 + 20);
-  ctx.fillText('Refresh to play again', canvas.width / 2, canvas.height / 2 + 50);
-  ctx.restore();
-}
+// drawGameOver removed; handled by DOM overlay.

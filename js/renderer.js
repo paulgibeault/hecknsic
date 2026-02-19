@@ -519,28 +519,54 @@ function drawSpecialIndicator(cx, cy, radius, type, alpha = 1, bombTimer) {
     case 'bomb': {
       // Dark circle background
       ctx.beginPath();
-      ctx.arc(cx, cy, radius * 0.7, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(20, 20, 20, 0.75)';
+      ctx.arc(cx, cy, radius * 0.85, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(20, 20, 20, 0.8)';
       ctx.fill();
 
-      // Pulsing red ring when timer is low
-      if (bombTimer !== undefined && bombTimer <= 5) {
-        ctx.strokeStyle = `rgba(255, 50, 50, ${0.5 + 0.5 * Math.sin(Date.now() / 150)})`;
-        ctx.lineWidth = 2.5;
-        ctx.stroke();
-      } else {
-        ctx.strokeStyle = 'rgba(255, 100, 50, 0.6)';
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
+      // Fuse Arc (decreases as timer goes down)
+      // Max timer usually starts around 9-12? Let's assume max is around 10 for visual arc, 
+      // or just make it a full circle that depletes.
+      // Let's use a standard max of 10 for the full circle for now, or just proportional if we knew max.
+      // Since we don't track maxBombTimer easily here, we'll just imply a visual "danger" zone.
+      // Actually, let's just make it a full ring that glows.
+      
+      const isLow = bombTimer <= 5;
+      const pulsing = 0.5 + 0.5 * Math.sin(Date.now() / 150);
+
+      // Outer Ring / Fuse
+      ctx.beginPath();
+      // Draw a partial arc? Or just a full ring that changes color?
+      // Let's try a "fuse" style: 
+      // If timer is high (>5), yellow/orange. If low, flashing red.
+      ctx.arc(cx, cy, radius * 0.85, 0, Math.PI * 2);
+      ctx.strokeStyle = isLow 
+        ? `rgba(255, 50, 50, ${pulsing})` 
+        : 'rgba(255, 180, 50, 0.8)';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      
+      // Little "fuse spark" rotating?
+      if (bombTimer > 0) {
+        const angle = (Date.now() / 300) % (Math.PI * 2);
+        const fuseX = cx + Math.cos(angle) * (radius * 0.85);
+        const fuseY = cy + Math.sin(angle) * (radius * 0.85);
+        
+        ctx.beginPath();
+        ctx.arc(fuseX, fuseY, 3, 0, Math.PI * 2);
+        ctx.fillStyle = isLow ? '#FFF' : '#FFD700';
+        ctx.fill();
       }
 
       // Timer number
       if (bombTimer !== undefined) {
-        ctx.fillStyle = bombTimer <= 5 ? '#FF4040' : '#FFFFFF';
-        ctx.font = `bold ${radius * 0.9}px "Segoe UI", system-ui, sans-serif`;
+        ctx.fillStyle = isLow ? '#FF4040' : '#FFFFFF';
+        ctx.font = `bold ${radius * 1.1}px "Segoe UI", system-ui, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(String(bombTimer), cx, cy + 1);
+        ctx.shadowColor = 'rgba(0,0,0,0.8)';
+        ctx.shadowBlur = 4;
+        ctx.fillText(String(bombTimer), cx, cy + 2);
+        ctx.shadowBlur = 0;
       }
       break;
     }
