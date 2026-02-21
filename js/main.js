@@ -943,14 +943,9 @@ async function handleGameOver(isSessionEnd = false) {
   addHighScore(combinedId, getScore());
   console.log('Game/Session Over. High score saved.');
 
-  // 1. Show Game Over Modal
+  // 1. Show Game Over Modal (only if not a peaceful chill session end)
   const gameOverMsgEl = document.querySelector('.gameover-message');
-  if (isSessionEnd) {
-    document.querySelector('#modal-gameover h2').textContent = 'SESSION ENDED';
-    document.querySelector('#modal-gameover h2').style.color = '#50B0FF';
-    document.querySelector('#modal-gameover h2').style.borderColor = '#50B0FF';
-    if (gameOverMsgEl) gameOverMsgEl.style.display = 'none';
-  } else {
+  if (!isSessionEnd) {
     document.querySelector('#modal-gameover h2').textContent = 'GAME OVER';
     document.querySelector('#modal-gameover h2').style.color = '#ff4444';
     document.querySelector('#modal-gameover h2').style.borderColor = '#ff4444';
@@ -958,11 +953,11 @@ async function handleGameOver(isSessionEnd = false) {
       gameOverMsgEl.style.display = 'block';
       gameOverMsgEl.textContent = '💣 A bomb exploded!';
     }
-  }
 
-  document.getElementById('go-score').textContent = getScore().toLocaleString();
-  document.getElementById('go-combo').textContent = `x${getComboCount()}`;
-  document.getElementById('modal-gameover').classList.remove('hidden');
+    document.getElementById('go-score').textContent = getScore().toLocaleString();
+    document.getElementById('go-combo').textContent = `x${getComboCount()}`;
+    document.getElementById('modal-gameover').classList.remove('hidden');
+  }
 
   // 2. Explode the board!
   const { originX, originY } = getOrigin();
@@ -1017,6 +1012,10 @@ async function handleGameOver(isSessionEnd = false) {
   // Cleanup
   for (const item of floaters) {
     removeFloatingPiece(item.fp);
+  }
+
+  if (isSessionEnd) {
+    resetGame();
   }
 }
 
