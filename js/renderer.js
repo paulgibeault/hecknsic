@@ -72,14 +72,18 @@ function recalcOrigin() {
 
   // Space reserved for HUD (top) and rotation controls (bottom).
   const HUD_H  = 60;
-  const CTRL_H = 100; // 80px buttons + 20px bottom margin
+  
+  // If we have a fine pointer (mouse/trackpad) and a wide screen, controls are hidden via CSS.
+  // We can free up that vertical space for the board.
+  const isDesktop = window.matchMedia('(pointer: fine) and (min-width: 1024px)').matches;
+  const CTRL_H = isDesktop ? 0 : 100; // 80px buttons + 20px bottom margin
 
-  // Scale down only when necessary; never upscale.
-  boardScale = Math.min(
-    1,
-    (canvasW - 8) / gridPixelW,          // 4px padding each side
-    (canvasH - HUD_H - CTRL_H) / gridPixelH,
-  );
+  // Calculate the scale needed to fit the board. We allow upscaling (up to 1.8x)
+  // on large screens to fill the comfortable margins.
+  const fitScaleX = (canvasW - 40) / gridPixelW; // 20px padding each side
+  const fitScaleY = (canvasH - HUD_H - CTRL_H - 20) / gridPixelH; // 20px padding bottom
+  
+  boardScale = Math.min(1.8, fitScaleX, fitScaleY);
 
   // Logical canvas dimensions: the coordinate space all drawing uses.
   const logicalW = canvasW / boardScale;
@@ -90,7 +94,7 @@ function recalcOrigin() {
   // offset so col-0 row-0 isn't right at the edge.
   originX = (logicalW - gridPixelW) / 2 + HEX_SIZE;
   originY = HUD_H / boardScale
-          + ((canvasH - HUD_H - CTRL_H) / boardScale - gridPixelH) / 2
+          + ((logicalH - (HUD_H / boardScale) - (CTRL_H / boardScale)) - gridPixelH) / 2
           + Math.sqrt(3) / 2 * HEX_SIZE;
 }
 
@@ -697,11 +701,20 @@ function drawBoardBackground() {
   const h = gridPixelH + padding;
 
   ctx.fillStyle = BOARD_BG_COLOR;
+  
+  // Ambient neon/shadow drop off the board
+  ctx.save();
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+  ctx.shadowBlur = 40;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 10;
   roundRect(ctx, x, y, w, h, 12);
   ctx.fill();
+  ctx.restore();
 
-  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-  ctx.lineWidth = 1;
+  // Highlight stroke
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.lineWidth = 1.5;
   roundRect(ctx, x, y, w, h, 12);
   ctx.stroke();
 }
