@@ -15,7 +15,8 @@ import {
   BOMB_SPAWN_INTERVAL,
 } from './constants.js';
 import {
-  createGrid, rotateCluster, rotateRing, findMatches,
+  createGrid, rotateCluster, rotateRing,
+  findMatches, findMatchesForMode,
   applyGravity, fillEmpty,
 } from './board.js';
 import {
@@ -23,11 +24,13 @@ import {
   setCellOverride, clearAllOverrides,
   addFloatingPiece, removeFloatingPiece,
   spawnCreationParticles, spawnScorePopup,
+  getLogoBounds,
 } from './renderer.js';
+import { loadActiveMode, getActiveMode, getActiveModeId, setActiveMode, getAllModes } from './modes.js';
 import { hexToPixel, getNeighbors, pixelToHex, findClusterAtPixel } from './hex-math.js';
 import {
   initInput, getHoverCluster, consumeAction, getLastClickPos, triggerAction,
-  setKeyBindings
+  setKeyBindings, clearPendingAction,
 } from './input.js';
 import { tween, updateTweens, easeOutCubic, easeOutBounce } from './tween.js';
 import {
@@ -119,9 +122,23 @@ document.getElementById('btn-newgame').addEventListener('click', (e) => {
   resetGame();
 });
 
+// Mode selector modal bindings
+document.getElementById('btn-mode-arcade').addEventListener('click', (e) => {
+  e.stopPropagation();
+  switchMode('arcade');
+});
+document.getElementById('btn-mode-chill').addEventListener('click', (e) => {
+  e.stopPropagation();
+  switchMode('chill');
+});
+document.getElementById('btn-close-mode').addEventListener('click', (e) => {
+  e.stopPropagation();
+  closeModeSelectorModal();
+});
+
 function showHighScores() {
   const list = document.getElementById('high-scores-list');
-  const scores = getHighScores();
+  const scores = getHighScores(getActiveModeId());
   
   if (scores.length === 0) {
     list.innerHTML = '<li>No scores yet!</li>';
@@ -150,8 +167,9 @@ function updateControlsVisibility() {
 
 window.addEventListener('resize', () => resize(canvas));
 
-// Attempt to load saved state
-const savedState = loadGameState();
+// Restore active mode then load per-mode saved state
+loadActiveMode();
+const savedState = loadGameState(getActiveModeId());
 if (savedState) {
   grid = savedState.grid;
   restoreScore(savedState);
@@ -248,6 +266,15 @@ function trySelect() {
     return;
   }
 
+  // Logo hit-test: clicking the logo opens the mode selector
+  const logo = getLogoBounds();
+  if (logo &&
+      clickPos.x >= logo.x && clickPos.x <= logo.x + logo.w &&
+      clickPos.y >= logo.y && clickPos.y <= logo.y + logo.h) {
+    openModeSelector();
+    return;
+  }
+
   const hex = pixelToHex(clickPos.x, clickPos.y, originX, originY);
 
   // Check if the clicked hex is a black pearl → Y-shape selection
@@ -310,6 +337,48 @@ function trySelect() {
   }
 }
 
+// ─── Mode selector ──────────────────────────────────────────────
+
+function openModeSelector() {
+  isPaused = true;
+  const currentId = getActiveModeId();
+  for (const m of getAllModes()) {
+    document.getElementById(`btn-mode-${m.id}`)
+      ?.classList.toggle('mode-active', m.id === currentId);
+  }
+  document.getElementById('modal-mode').classList.remove('hidden');
+}
+
+async function switchMode(newModeId) {
+  if (newModeId === getActiveModeId()) { closeModeSelectorModal(); return; }
+  saveGame();                     // persist current mode state
+  setActiveMode(newModeId);       // persist new selection
+  clearAllOverrides();            // clean up any in-progress animation state
+  bombQueued = false;
+  selectedCluster = flowerCenter = pearlCenter = null;
+  const saved = loadGameState(newModeId);
+  if (saved) {
+    grid = saved.grid;
+    restoreScore(saved);
+    moveCount = saved.moveCount || 0;
+  } else {
+    resetScore();
+    resetChain();
+    grid = createGrid();
+    moveCount = 0;
+  }
+  state = 'idle';
+  document.getElementById('modal-gameover').classList.add('hidden');
+  closeModeSelectorModal();
+}
+
+function closeModeSelectorModal() {
+  isPaused = false;
+  clearPendingAction();   // discard any ghost click that fired while modal was visible
+  document.getElementById('modal-mode').classList.add('hidden');
+  lastTime = performance.now();
+}
+
 // ─── Rotation animation ────────────────────────────────────────
 
 async function animateRotation(clockwise) {
@@ -335,7 +404,7 @@ async function animateRotation(clockwise) {
     }
 
     // 2. Check for matches or specials
-    const matches = findMatches(grid, GRID_COLS, GRID_ROWS);
+    const matches = findMatchesForMode(grid, GRID_COLS, GRID_ROWS);
     const sfResults = detectStarflowers(grid);
     const bpResults = detectBlackPearls(grid);
 
@@ -648,28 +717,29 @@ async function animateBlackPearlCreation(bpResults) {
   }
 
   applyGravity(grid);
-  const filled = fillEmpty(grid, undefined, undefined, undefined, bombQueued);
-  if (bombQueued && filled.length > 0) bombQueued = false;
+  const mode = getActiveMode();
+  const filled = fillEmpty(grid, undefined, undefined, undefined, mode.hasBombs && bombQueued);
+  if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
 }
 
-/** Shared post-rotation logic: tick bombs, cascade or detect specials */
 /** Shared post-rotation logic: tick bombs, cascade or detect specials */
 async function postRotationCheck() {
   moveCount++;
 
-  // Tick bomb timers
-  const bombExpired = tickBombs(grid);
-  if (bombExpired) {
-    handleGameOver();
-    return;
+  const mode = getActiveMode();
+
+  // Tick bomb timers and spawn new bombs only in modes that support them
+  if (mode.hasBombs) {
+    const bombExpired = tickBombs(grid);
+    if (bombExpired && mode.hasGameOver) {
+      handleGameOver();
+      return;
+    }
+    // Spawn bombs periodically (queue for next fill)
+    if (moveCount % BOMB_SPAWN_INTERVAL === 0) bombQueued = true;
   }
 
-  // Spawn bombs periodically (queue for next fill)
-  if (moveCount > 0 && moveCount % BOMB_SPAWN_INTERVAL === 0) {
-    bombQueued = true;
-  }
-
-  const matches = findMatches(grid, GRID_COLS, GRID_ROWS);
+  const matches = findMatchesForMode(grid, GRID_COLS, GRID_ROWS);
   if (matches.size > 0) {
     state = 'cascading';
     await runCascade(matches);
@@ -692,7 +762,7 @@ async function postRotationCheck() {
       }
 
       // Check if the new arrangement creates matches
-      const postMatches = findMatches(grid, GRID_COLS, GRID_ROWS);
+      const postMatches = findMatchesForMode(grid, GRID_COLS, GRID_ROWS);
       if (postMatches.size > 0) {
         await runCascade(postMatches);
         selectedCluster = null;
@@ -723,8 +793,8 @@ async function postRotationCheck() {
 
 async function handleGameOver() {
   state = 'gameover';
-  clearGameState();
-  addHighScore(getScore());
+  clearGameState(getActiveModeId());
+  addHighScore(getActiveModeId(), getScore());
   console.log('Game Over. High score saved.');
 
   // 1. Show Game Over Modal
@@ -808,7 +878,7 @@ function resetGame() {
 }
 
 function saveGame() {
-  saveGameState({
+  saveGameState(getActiveModeId(), {
     grid,
     moveCount,
     score: getScore(),
@@ -943,16 +1013,17 @@ async function animateStarflowerCreation(sfResults) {
   }
 
   applyGravity(grid);
-  const filled = fillEmpty(grid, undefined, undefined, undefined, bombQueued);
-  if (bombQueued && filled.length > 0) bombQueued = false;
-
-
+  {
+    const mode = getActiveMode();
+    const filled = fillEmpty(grid, undefined, undefined, undefined, mode.hasBombs && bombQueued);
+    if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
+  }
 }
 
 async function startCascade() {
   state = 'cascading';
 
-  const matches = findMatches(grid, GRID_COLS, GRID_ROWS);
+  const matches = findMatchesForMode(grid, GRID_COLS, GRID_ROWS);
   if (matches.size === 0) {
     // No match — just deselect
     selectedCluster = null;
@@ -1153,8 +1224,11 @@ async function runCascade(initialMatches) {
 
   // Commit gravity and fill
   applyGravity(grid);
-  const filled = fillEmpty(grid, undefined, undefined, undefined, bombQueued);
-  if (bombQueued && filled.length > 0) bombQueued = false;
+  {
+    const mode = getActiveMode();
+    const filled = fillEmpty(grid, undefined, undefined, undefined, mode.hasBombs && bombQueued);
+    if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
+  }
 
   // ── Starflower detection (after board settles) ─────────────
   const sfPost = detectStarflowers(grid);
@@ -1178,7 +1252,7 @@ async function runCascade(initialMatches) {
   advanceChain();
 
   // ── Check for chain reactions ──────────────────────────────
-  const newMatches = findMatches(grid, GRID_COLS, GRID_ROWS);
+  const newMatches = findMatchesForMode(grid, GRID_COLS, GRID_ROWS);
   if (newMatches.size > 0) {
     await delay(100);
     await runCascade(newMatches);

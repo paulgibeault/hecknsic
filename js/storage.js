@@ -1,12 +1,12 @@
 /**
  * storage.js — LocalStorage wrapper for persistence.
+ *
+ * Key scheme:
+ *   hecknsic_activemode          – global, last used mode id
+ *   hecknsic_state_{modeId}      – per-mode game state
+ *   hecknsic_highscores_{modeId} – per-mode high scores
+ *   hecknsic_settings            – global, unchanged
  */
-
-const STORAGE_KEYS = {
-  GAME_STATE: 'hecknsic_state',
-  SETTINGS: 'hecknsic_settings',
-  HIGH_SCORES: 'hecknsic_highscores',
-};
 
 const DEFAULT_SETTINGS = {
   theme: 'dark',
@@ -17,25 +17,29 @@ const DEFAULT_SETTINGS = {
   },
 };
 
+// ─── Game state (per-mode) ───────────────────────────────────────
+
 /**
- * Save the current game state.
- * @param {Object} state - The complete game state object.
+ * Save the current game state for the given mode.
+ * @param {string} modeId
+ * @param {Object} state
  */
-export function saveGameState(state) {
+export function saveGameState(modeId, state) {
   try {
-    localStorage.setItem(STORAGE_KEYS.GAME_STATE, JSON.stringify(state));
+    localStorage.setItem(`hecknsic_state_${modeId}`, JSON.stringify(state));
   } catch (e) {
     console.error('Failed to save game state:', e);
   }
 }
 
 /**
- * Load the saved game state.
- * @returns {Object|null} The saved state or null if none/error.
+ * Load the saved game state for the given mode.
+ * @param {string} modeId
+ * @returns {Object|null}
  */
-export function loadGameState() {
+export function loadGameState(modeId) {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.GAME_STATE);
+    const raw = localStorage.getItem(`hecknsic_state_${modeId}`);
     return raw ? JSON.parse(raw) : null;
   } catch (e) {
     console.error('Failed to load game state:', e);
@@ -44,19 +48,22 @@ export function loadGameState() {
 }
 
 /**
- * Clear the saved game state (e.g. on game over).
+ * Clear the saved game state for the given mode (e.g. on game over).
+ * @param {string} modeId
  */
-export function clearGameState() {
-  localStorage.removeItem(STORAGE_KEYS.GAME_STATE);
+export function clearGameState(modeId) {
+  localStorage.removeItem(`hecknsic_state_${modeId}`);
 }
+
+// ─── Settings (global) ──────────────────────────────────────────
 
 /**
  * Save settings.
- * @param {Object} settings 
+ * @param {Object} settings
  */
 export function saveSettings(settings) {
   try {
-    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
+    localStorage.setItem('hecknsic_settings', JSON.stringify(settings));
   } catch (e) {
     console.error('Failed to save settings:', e);
   }
@@ -67,7 +74,7 @@ export function saveSettings(settings) {
  */
 export function loadSettings() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.SETTINGS);
+    const raw = localStorage.getItem('hecknsic_settings');
     const userSettings = raw ? JSON.parse(raw) : {};
     return { ...DEFAULT_SETTINGS, ...userSettings };
   } catch (e) {
@@ -76,32 +83,33 @@ export function loadSettings() {
   }
 }
 
+// ─── High scores (per-mode) ─────────────────────────────────────
+
 /**
- * Add a new score to the high score list.
- * @param {number} score 
+ * Add a new score to the high score list for the given mode.
+ * @param {string} modeId
+ * @param {number} score
  */
-export function addHighScore(score) {
-  const scores = getHighScores();
-  scores.push({ score, date:  Date.now() });
-  // Sort desc
+export function addHighScore(modeId, score) {
+  const scores = getHighScores(modeId);
+  scores.push({ score, date: Date.now() });
   scores.sort((a, b) => b.score - a.score);
-  // Keep top 10
   const top10 = scores.slice(0, 10);
-  
   try {
-    localStorage.setItem(STORAGE_KEYS.HIGH_SCORES, JSON.stringify(top10));
+    localStorage.setItem(`hecknsic_highscores_${modeId}`, JSON.stringify(top10));
   } catch (e) {
     console.error('Failed to save high scores:', e);
   }
 }
 
 /**
- * Get the list of high scores.
+ * Get the list of high scores for the given mode.
+ * @param {string} modeId
  * @returns {Array<{score, date}>}
  */
-export function getHighScores() {
+export function getHighScores(modeId) {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.HIGH_SCORES);
+    const raw = localStorage.getItem(`hecknsic_highscores_${modeId}`);
     return raw ? JSON.parse(raw) : [];
   } catch (e) {
     console.error('Failed to load high scores:', e);

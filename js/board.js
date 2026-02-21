@@ -3,6 +3,8 @@
  */
 
 import { GRID_COLS, GRID_ROWS, PIECE_COLORS, BOMB_INITIAL_TIMER } from './constants.js';
+import { getNeighbors } from './hex-math.js';
+import { getActiveMode } from './modes.js';
 
 /**
  * A cell in the grid.
@@ -201,6 +203,64 @@ export function findMatches(grid, cols = GRID_COLS, rows = GRID_ROWS) {
   }
 
   return allMatched;
+}
+
+/**
+ * Find all triangle matches on the board.
+ *
+ * A cell participates when it forms at least one same-color mutually-adjacent
+ * triplet with two of its neighbors. Because getNeighbors() returns neighbors
+ * in clockwise order where consecutive entries [i] and [(i+1)%6] are always
+ * adjacent to each other, any center C with neighbors B=nbrs[i] and D=nbrs[(i+1)%6]
+ * of the same color guarantees that C, B, D are mutually adjacent (a triangle).
+ *
+ * @returns {Set<string>} flat Set of "col,row" keys of all matched cells
+ */
+export function findTriangleMatches(grid, cols = GRID_COLS, rows = GRID_ROWS) {
+  const allMatched = new Set();
+
+  for (let c = 0; c < cols; c++) {
+    for (let r = 0; r < rows; r++) {
+      if (grid[c][r] === null) continue;
+      if (grid[c][r].special === 'starflower') continue;
+      if (grid[c][r].special === 'blackpearl') continue;
+      const color = grid[c][r].colorIndex;
+
+      const nbrs = getNeighbors(c, r);
+      for (let i = 0; i < 6; i++) {
+        const B = nbrs[i];
+        const D = nbrs[(i + 1) % 6];
+
+        // Skip out-of-bounds neighbors
+        if (B.col < 0 || B.col >= cols || B.row < 0 || B.row >= rows) continue;
+        if (D.col < 0 || D.col >= cols || D.row < 0 || D.row >= rows) continue;
+
+        const cellB = grid[B.col][B.row];
+        const cellD = grid[D.col][D.row];
+
+        if (!cellB || !cellD) continue;
+        if (cellB.special === 'starflower' || cellB.special === 'blackpearl') continue;
+        if (cellD.special === 'starflower' || cellD.special === 'blackpearl') continue;
+        if (cellB.colorIndex !== color || cellD.colorIndex !== color) continue;
+
+        allMatched.add(`${c},${r}`);
+        allMatched.add(`${B.col},${B.row}`);
+        allMatched.add(`${D.col},${D.row}`);
+      }
+    }
+  }
+
+  return allMatched;
+}
+
+/**
+ * Find matches using the matching mode specified by the active game mode.
+ * Falls back to line matching if matchMode is 'line'.
+ */
+export function findMatchesForMode(grid, cols = GRID_COLS, rows = GRID_ROWS) {
+  return getActiveMode().matchMode === 'triangle'
+    ? findTriangleMatches(grid, cols, rows)
+    : findMatches(grid, cols, rows);
 }
 
 /**

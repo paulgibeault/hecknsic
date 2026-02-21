@@ -15,7 +15,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { GRID_COLS, GRID_ROWS } from '../js/constants.js';
-import { findMatches } from '../js/board.js';
+import { findMatches, findTriangleMatches } from '../js/board.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -90,6 +90,66 @@ test('findMatches: 3 regular same-color pieces in a row DO produce a match', () 
   for (const pos of RUN) {
     assert.equal(matched.has(`${pos.col},${pos.row}`), true,
       `regular piece at (${pos.col},${pos.row}) should be matched`);
+  }
+});
+
+// ─── Triangle matching ───────────────────────────────────────────
+//
+// Color 7 is used so no baseGrid cell (which uses (c+r)%5 ∈ {0..4}) can
+// accidentally interfere with our triangle/line cells.
+//
+// For col=4 (even), getNeighbors returns:
+//   N[0]=(5,3), N[1]=(5,2) — consecutive, so (4,3)+(5,3)+(5,2) is a valid triangle.
+// The axial SE line RUN=(4,2),(4,3),(4,4) is NOT a triangle (ends not adjacent).
+
+const TRIANGLE = [
+  { col: 4, row: 3 },  // center C
+  { col: 5, row: 3 },  // N[0] of C (NEIGHBORS_EVEN[0] = +1,0)
+  { col: 5, row: 2 },  // N[1] of C (NEIGHBORS_EVEN[1] = +1,-1) — adjacent to N[0]
+];
+const TRIANGLE_COLOR = 7; // not in (c+r)%5 range
+
+test('findTriangleMatches: 3 mutually-adjacent same-color cells DO produce a match', () => {
+  const grid = baseGrid();
+  for (const pos of TRIANGLE) {
+    grid[pos.col][pos.row] = { colorIndex: TRIANGLE_COLOR, special: null };
+  }
+
+  const matched = findTriangleMatches(grid);
+
+  for (const pos of TRIANGLE) {
+    assert.equal(matched.has(`${pos.col},${pos.row}`), true,
+      `triangle cell (${pos.col},${pos.row}) should be in matched set`);
+  }
+});
+
+test('findTriangleMatches: axial 3-in-a-row does NOT produce a match', () => {
+  const grid = baseGrid();
+  // SE axial line: (4,2),(4,3),(4,4) — endpoints not mutually adjacent
+  for (const pos of RUN) {
+    grid[pos.col][pos.row] = { colorIndex: TRIANGLE_COLOR, special: null };
+  }
+
+  const matched = findTriangleMatches(grid);
+
+  for (const pos of RUN) {
+    assert.equal(matched.has(`${pos.col},${pos.row}`), false,
+      `line cell (${pos.col},${pos.row}) should NOT be matched by triangle matcher`);
+  }
+});
+
+test('findMatches: triangle cluster does NOT produce a line match', () => {
+  const grid = baseGrid();
+  // (4,3),(5,3),(5,2) are not collinear on any axial axis
+  for (const pos of TRIANGLE) {
+    grid[pos.col][pos.row] = { colorIndex: TRIANGLE_COLOR, special: null };
+  }
+
+  const matched = findMatches(grid);
+
+  for (const pos of TRIANGLE) {
+    assert.equal(matched.has(`${pos.col},${pos.row}`), false,
+      `triangle cell (${pos.col},${pos.row}) should NOT produce a line match`);
   }
 });
 

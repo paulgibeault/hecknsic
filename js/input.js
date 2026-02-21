@@ -32,6 +32,15 @@ export function triggerAction(type) {
 }
 
 /**
+ * Discard any pending input action and last click position.
+ * Call after closing a modal to prevent ghost clicks from re-opening it.
+ */
+export function clearPendingAction() {
+  pendingAction = null;
+  lastClickPos = null;
+}
+
+/**
  * Bind event listeners on the canvas.
  */
 let keyBindings = {

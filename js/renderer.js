@@ -13,7 +13,6 @@ import {
 } from './constants.js';
 import { hexToPixel, hexCorners } from './hex-math.js';
 import { getDisplayScore, getComboCount, getChainLevel } from './score.js';
-
 // ─── Module state ───────────────────────────────────────────────
 let ctx;
 let canvasW, canvasH;   // physical CSS pixel dimensions
@@ -101,6 +100,16 @@ export function getOrigin() {
 
 /** Scale factor for converting physical CSS pixel coords → logical coords. */
 export function getBoardScale() { return boardScale; }
+
+/**
+ * Returns the bounding box of the logo in logical (design) space.
+ * Returns null if the logo image is not yet loaded.
+ */
+export function getLogoBounds() {
+  if (!logoImg.complete || logoImg.naturalWidth === 0) return null;
+  const s = 0.085;
+  return { x: 16, y: 5, w: logoImg.width * s, h: logoImg.height * s };
+}
 
 // ─── Override API ───────────────────────────────────────────────
 
@@ -862,10 +871,9 @@ function drawComboOverlay() {
 function drawHUD() {
   // Logo
   if (logoImg.complete && logoImg.naturalWidth > 0) {
-    const scale = 0.085; // Increased size
+    const scale = 0.085;
     const w = logoImg.width * scale;
     const h = logoImg.height * scale;
-    // Draw logo
     ctx.drawImage(logoImg, 16, 5, w, h);
   } else {
     // Fallback if not loaded
@@ -880,7 +888,6 @@ function drawHUD() {
   ctx.font = 'bold 20px "Segoe UI", system-ui, sans-serif';
   // Move score left to avoid overlap with top-right buttons
   ctx.fillText(`SCORE  ${getDisplayScore()}`, canvasW / boardScale - 140, 35);
-
 }
 
 // ─── Helpers ────────────────────────────────────────────────────
