@@ -257,7 +257,7 @@ export function findTriangleMatches(grid, cols = GRID_COLS, rows = GRID_ROWS) {
  * Find matches using the matching mode specified by the active match mode.
  */
 export function findMatchesForMode(grid, cols = GRID_COLS, rows = GRID_ROWS) {
-  return getActiveMatchMode().matchMode === 'triangle'
+  return getActiveMatchMode().matchMode === 'classic'
     ? findTriangleMatches(grid, cols, rows)
     : findMatches(grid, cols, rows);
 }

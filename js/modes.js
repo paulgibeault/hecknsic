@@ -9,7 +9,7 @@ const GAME_MODES = {
 
 const MATCH_MODES = {
   line: { id: 'line', label: 'Line', matchMode: 'line' },
-  triangle: { id: 'triangle', label: 'Triangle', matchMode: 'triangle' },
+  classic: { id: 'classic', label: 'Classic', matchMode: 'classic' },
 };
 
 let activeGameModeId = 'arcade';
@@ -22,8 +22,8 @@ export function loadActiveMode() {
   if (savedMatch && MATCH_MODES[savedMatch]) activeMatchModeId = savedMatch;
 }
 
-export function getActiveGameMode()   { return GAME_MODES[activeGameModeId]; }
-export function getActiveMatchMode()  { return MATCH_MODES[activeMatchModeId]; }
+export function getActiveGameMode()   { return GAME_MODES[activeGameModeId] || GAME_MODES.arcade; }
+export function getActiveMatchMode()  { return MATCH_MODES[activeMatchModeId] || MATCH_MODES.classic; }
 export function getActiveGameModeId() { return activeGameModeId; }
 export function getActiveMatchModeId() { return activeMatchModeId; }
 // Used for high score storage keys:
