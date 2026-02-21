@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="icon.png" width="160" alt="Hecknsic Logo" />
+  <img src="img/logo_header.png" width="160" alt="Hecknsic Logo" />
   <h1>Hecknsic</h1>
   <a href="https://paulgibeault.github.io/hecknsic/" target="_blank">
     <img src="https://img.shields.io/badge/▶-Launch_Game-7000ff?style=for-the-badge&color=282c34&logoColor=61dafb" alt="Launch Game" />
