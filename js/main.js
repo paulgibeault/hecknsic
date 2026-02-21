@@ -565,6 +565,14 @@ async function animateBlackPearlCreation(bpResults) {
   for (const bp of bpResults) {
     const centerPx = hexToPixel(bp.center.col, bp.center.row, originX, originY);
 
+    // Mutate center to black pearl now (detection was non-mutating)
+    const centerCell = grid[bp.center.col][bp.center.row];
+    if (centerCell) {
+      centerCell.colorIndex = -2;
+      centerCell.special = 'blackpearl';
+      delete centerCell.bombTimer;
+    }
+
     // Phase 1: Ring implodes — starflower pieces shrink toward center (400ms)
     await tween(400, t => {
       for (const pos of bp.ring) {

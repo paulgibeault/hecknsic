@@ -107,9 +107,8 @@ export function detectStarflowers(grid) {
 
 /**
  * Board-scan: if any hex has all 6 in-bounds neighbors as starflowers
- * → center becomes a black pearl, starflower ring is absorbed.
- *
- * Returns data for animation (ring positions to clear).
+ * → returns data for animation. Does NOT mutate the grid.
+ * The caller is responsible for mutating the center and clearing the ring.
  * @returns {Array<{center, ring}>}
  */
 export function detectBlackPearls(grid) {
@@ -125,10 +124,7 @@ export function detectBlackPearls(grid) {
       );
       if (validStars.length !== 6) continue;
 
-      // All 6 neighbors are starflowers → create black pearl
-      cell.colorIndex = -2;
-      cell.special = 'blackpearl';
-      delete cell.bombTimer;
+      // All 6 neighbors are starflowers → record formation for caller to animate
       results.push({
         center: { col: c, row: r },
         ring: validStars.map(n => ({ col: n.col, row: n.row })),
