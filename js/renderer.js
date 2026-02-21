@@ -16,8 +16,9 @@ import { getDisplayScore, getComboCount, getChainLevel } from './score.js';
 
 // ─── Module state ───────────────────────────────────────────────
 let ctx;
-let canvasW, canvasH;
-let originX, originY;
+let canvasW, canvasH;   // physical CSS pixel dimensions
+let originX, originY;   // hex grid origin in logical (design) space
+let boardScale = 1;     // scale applied to fit the board on small screens
 
 // Per-cell animation overrides: "col,row" → { scale?, alpha?, offsetX?, offsetY?, hidden? }
 let cellOverrides = {};
@@ -43,20 +44,46 @@ export function resize(canvas) {
   canvasH = rect.height;
   canvas.width = canvasW * dpr;
   canvas.height = canvasH * dpr;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   recalcOrigin();
+  // Include boardScale in the transform so all drawing uses logical coordinates.
+  // Input coords must be divided by boardScale to convert back to logical space.
+  ctx.setTransform(dpr * boardScale, 0, 0, dpr * boardScale, 0, 0);
 }
 
 function recalcOrigin() {
   const gridPixelW = (GRID_COLS - 1) * HEX_SIZE * 1.5 + HEX_SIZE * 2;
   const gridPixelH = GRID_ROWS * Math.sqrt(3) * HEX_SIZE + Math.sqrt(3) / 2 * HEX_SIZE;
-  originX = (canvasW - gridPixelW) / 2 + HEX_SIZE;
-  originY = (canvasH - gridPixelH) / 2 + Math.sqrt(3) / 2 * HEX_SIZE + 60; // Increased top margin
+
+  // Space reserved for HUD (top) and rotation controls (bottom).
+  const HUD_H  = 60;
+  const CTRL_H = 100; // 80px buttons + 20px bottom margin
+
+  // Scale down only when necessary; never upscale.
+  boardScale = Math.min(
+    1,
+    (canvasW - 8) / gridPixelW,          // 4px padding each side
+    (canvasH - HUD_H - CTRL_H) / gridPixelH,
+  );
+
+  // Logical canvas dimensions: the coordinate space all drawing uses.
+  const logicalW = canvasW / boardScale;
+  const logicalH = canvasH / boardScale;
+
+  // Centre the grid horizontally. Vertically, place it in the space
+  // between the HUD and the controls, then shift down by the half-hex
+  // offset so col-0 row-0 isn't right at the edge.
+  originX = (logicalW - gridPixelW) / 2 + HEX_SIZE;
+  originY = HUD_H / boardScale
+          + ((canvasH - HUD_H - CTRL_H) / boardScale - gridPixelH) / 2
+          + Math.sqrt(3) / 2 * HEX_SIZE;
 }
 
 export function getOrigin() {
   return { originX, originY };
 }
+
+/** Scale factor for converting physical CSS pixel coords → logical coords. */
+export function getBoardScale() { return boardScale; }
 
 // ─── Override API ───────────────────────────────────────────────
 
@@ -110,7 +137,7 @@ export function clearCreationParticles() {
 export function drawFrame(grid, hoverCluster, selectedCluster) {
   // Clear
   ctx.fillStyle = FRAME_COLOR;
-  ctx.fillRect(0, 0, canvasW, canvasH);
+  ctx.fillRect(0, 0, canvasW / boardScale, canvasH / boardScale);
 
   // Board background
   drawBoardBackground();
@@ -683,14 +710,14 @@ function drawHUD() {
   ctx.fillStyle = TEXT_COLOR;
   ctx.font = 'bold 20px "Segoe UI", system-ui, sans-serif';
   // Move score left to avoid overlap with top-right buttons
-  ctx.fillText(`SCORE  ${getDisplayScore()}`, canvasW - 140, 35);
+  ctx.fillText(`SCORE  ${getDisplayScore()}`, canvasW / boardScale - 140, 35);
 
   const combo = getComboCount();
   if (combo > 1) {
     ctx.fillStyle = '#FFD740';
     ctx.font = 'bold 16px "Segoe UI", system-ui, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(`COMBO x${combo}`, canvasW / 2, 28);
+    ctx.fillText(`COMBO x${combo}`, canvasW / boardScale / 2, 28);
   }
 }
 

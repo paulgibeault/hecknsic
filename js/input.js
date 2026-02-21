@@ -4,7 +4,7 @@
 
 import { GRID_COLS, GRID_ROWS } from './constants.js';
 import { pixelToHex, findClusterAtPixel } from './hex-math.js';
-import { getOrigin } from './renderer.js';
+import { getOrigin, getBoardScale } from './renderer.js';
 
 // ─── State ──────────────────────────────────────────────────────
 let mouseX = 0, mouseY = 0;
@@ -47,15 +47,17 @@ export function setKeyBindings(bindings) {
 export function initInput(canvas) {
   canvas.addEventListener('mousemove', e => {
     const rect = canvas.getBoundingClientRect();
-    mouseX = e.clientX - rect.left;
-    mouseY = e.clientY - rect.top;
+    const s = getBoardScale();
+    mouseX = (e.clientX - rect.left) / s;
+    mouseY = (e.clientY - rect.top) / s;
     updateHover();
   });
 
   canvas.addEventListener('click', e => {
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
-    lastClickPos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    const s = getBoardScale();
+    lastClickPos = { x: (e.clientX - rect.left) / s, y: (e.clientY - rect.top) / s };
     pendingAction = { type: 'select' };
   });
 
@@ -69,8 +71,9 @@ export function initInput(canvas) {
     e.preventDefault();
     const touch = e.touches[0];
     const rect = canvas.getBoundingClientRect();
-    mouseX = touch.clientX - rect.left;
-    mouseY = touch.clientY - rect.top;
+    const s = getBoardScale();
+    mouseX = (touch.clientX - rect.left) / s;
+    mouseY = (touch.clientY - rect.top) / s;
     lastClickPos = { x: mouseX, y: mouseY };
     updateHover();
     pendingAction = { type: 'select' };
@@ -80,8 +83,9 @@ export function initInput(canvas) {
     e.preventDefault();
     const touch = e.touches[0];
     const rect = canvas.getBoundingClientRect();
-    mouseX = touch.clientX - rect.left;
-    mouseY = touch.clientY - rect.top;
+    const s = getBoardScale();
+    mouseX = (touch.clientX - rect.left) / s;
+    mouseY = (touch.clientY - rect.top) / s;
     updateHover();
   }, { passive: false });
 
