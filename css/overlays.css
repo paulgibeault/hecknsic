@@ -24,21 +24,7 @@
   border-color: #fff;
 }
 
-.mode-badge {
-  position: absolute;
-  top: -8px;
-  right: -8px;
-  background: #2080E0;
-  color: white;
-  font-size: 0.7rem;
-  font-weight: bold;
-  padding: 2px 6px;
-  border-radius: 10px;
-  border: 2px solid #181A20;
-  pointer-events: none;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.5);
-  white-space: nowrap;
-}
+
 
 .modal {
   position: fixed;

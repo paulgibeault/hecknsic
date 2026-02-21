@@ -12,6 +12,7 @@ import {
   HIGHLIGHT_COLOR, CLUSTER_HIGHLIGHT,
 } from './constants.js';
 import { hexToPixel, hexCorners } from './hex-math.js';
+import { getActiveGameMode, getActiveMatchMode } from './modes.js';
 import { getDisplayScore, getComboCount, getChainLevel } from './score.js';
 // ─── Module state ───────────────────────────────────────────────
 let ctx;
@@ -882,25 +883,38 @@ function drawComboOverlay() {
 // ─── HUD ────────────────────────────────────────────────────────
 
 function drawHUD() {
+  let textStartY = 28;
+
   // Logo
   if (logoImg.complete && logoImg.naturalWidth > 0) {
     const scale = 0.085;
     const w = logoImg.width * scale;
     const h = logoImg.height * scale;
     ctx.drawImage(logoImg, 16, 5, w, h);
+    textStartY = 5 + h + 24; // Position text below the logo
   } else {
     // Fallback if not loaded
     ctx.fillStyle = TEXT_COLOR;
     ctx.font = 'bold 22px "Segoe UI", system-ui, sans-serif';
     ctx.textAlign = 'left';
     ctx.fillText('Hecknsic', 16, 28);
+    textStartY = 28 + 24;
   }
 
-  ctx.textAlign = 'right';
+  // Draw Score
+  ctx.textAlign = 'left';
   ctx.fillStyle = TEXT_COLOR;
   ctx.font = 'bold 20px "Segoe UI", system-ui, sans-serif';
-  // Move score left to avoid overlap with top-right buttons
-  ctx.fillText(`SCORE  ${getDisplayScore()}`, canvasW / boardScale - 140, 35);
+  ctx.fillText(`SCORE  ${getDisplayScore()}`, 16, textStartY);
+
+  // Draw Mode Indicator
+  ctx.fillStyle = '#50B0FF';
+  ctx.font = 'bold 12px "Segoe UI", system-ui, sans-serif';
+  ctx.letterSpacing = '1px';
+  const gameMode = getActiveGameMode()?.label || 'ARCADE';
+  const matchMode = getActiveMatchMode()?.label || 'LINE';
+  ctx.fillText(`${gameMode.toUpperCase()} - ${matchMode.toUpperCase()}`, 16, textStartY + 18);
+  ctx.letterSpacing = '0px'; // reset
 }
 
 // ─── Helpers ────────────────────────────────────────────────────

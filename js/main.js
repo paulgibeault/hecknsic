@@ -246,7 +246,6 @@ window.addEventListener('resize', () => resize(canvas));
 loadActiveMode();
 const activeGameMode = getActiveGameMode();
 const activeMatchMode = getActiveMatchMode();
-updateModeBadge();
 
 if (activeGameMode.id === 'chill') {
   document.getElementById('btn-end-session').classList.remove('hidden');
@@ -436,16 +435,10 @@ function trySelect() {
 
 // ─── Mode selector ──────────────────────────────────────────────
 
-function updateModeBadge() {
-  document.getElementById('mode-badge').textContent = `${getActiveGameMode().label} - ${getActiveMatchMode().label}`;
-}
-
 async function switchGameMode(newModeId) {
   if (newModeId === getActiveGameModeId()) return;
   saveGame();                     // persist current mode state
   setActiveGameMode(newModeId);       // persist new selection
-  
-  updateModeBadge();
   if (newModeId === 'chill') {
     document.getElementById('btn-end-session').classList.remove('hidden');
   } else {
@@ -464,7 +457,6 @@ async function switchMatchMode(newModeId) {
   if (newModeId === getActiveMatchModeId()) return;
   saveGame();
   setActiveMatchMode(newModeId);
-  updateModeBadge();
 
   document.querySelectorAll('[data-match]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.match === newModeId);
