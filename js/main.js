@@ -229,6 +229,7 @@ document.getElementById('btn-cancel-end').addEventListener('click', (e) => {
 document.getElementById('btn-confirm-end').addEventListener('click', (e) => {
   e.stopPropagation();
   endSessionModal.classList.add('hidden');
+  isPaused = false; // Must unpause so the tween game-loop can tick!
   
   // End session logic: trigger explosion sequence
   handleGameOver(true);
