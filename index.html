@@ -27,11 +27,6 @@
   </div>
 
 
-  <!-- End Session Button (Chill Mode) -->
-  <button id="btn-end-session" class="icon-btn hidden" aria-label="End Session" style="right: 170px;">
-    ⏹
-  </button>
-
   <!-- High Score Modal -->
   <div id="modal-scores" class="modal hidden">
     <div class="modal-content">
@@ -76,6 +71,9 @@
       <div class="dropdown-options">
         <button id="dropdown-btn-settings" class="dropdown-btn">
           <span class="icon">⚙️</span> Settings
+        </button>
+        <button id="dropdown-btn-end-session" class="dropdown-btn hidden" style="color: #ff4444;">
+          <span class="icon">⏹</span> End Session
         </button>
       </div>
     </div>
@@ -160,6 +158,19 @@
       </div>
 
       <button id="btn-newgame" class="start-btn" style="background: #ff4444;">New Game</button>
+    </div>
+  </div>
+
+  <!-- End Session Confirm Modal -->
+  <div id="modal-end-session" class="modal hidden">
+    <div class="modal-content text-center shake-animation" style="border-color: rgba(255, 68, 68, 0.4); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.9), 0 0 30px rgba(255, 68, 68, 0.2);">
+      <h2 style="color: #ff4444; text-shadow: 0 0 10px rgba(255,68,68,0.5);">End Session?</h2>
+      <p style="margin-bottom: 24px;">Are you sure you want to end your Chill session? Your score will be saved.</p>
+      
+      <div style="display: flex; gap: 12px; justify-content: center;">
+        <button id="btn-cancel-end" class="start-btn" style="background: #333; flex: 1;">Cancel</button>
+        <button id="btn-confirm-end" class="start-btn" style="background: #ff4444; flex: 1;">End Session</button>
+      </div>
     </div>
   </div>
 

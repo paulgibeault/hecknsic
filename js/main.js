@@ -201,10 +201,42 @@ function bindKeyInput(id, keyName) {
 bindKeyInput('bind-ccw', 'rotateCW');
 bindKeyInput('bind-cw', 'rotateCCW');
 
-// Chill Mode end session
-document.getElementById('btn-end-session').addEventListener('click', (e) => {
+// ─── End Session Modal ──────────────────────────────────────────
+
+const endSessionModal = document.getElementById('modal-end-session');
+
+document.getElementById('dropdown-btn-end-session').addEventListener('click', (e) => {
   e.stopPropagation();
-  handleGameOver(true);
+  isPaused = true;
+  logoDropdown.classList.add('hidden');
+  
+  // Re-trigger CSS animation
+  const content = endSessionModal.querySelector('.modal-content');
+  content.classList.remove('shake-animation');
+  void content.offsetWidth; // trigger reflow
+  content.classList.add('shake-animation');
+  
+  endSessionModal.classList.remove('hidden');
+});
+
+document.getElementById('btn-cancel-end').addEventListener('click', (e) => {
+  e.stopPropagation();
+  hideModal('modal-end-session');
+  // allow board interactions again
+});
+
+document.getElementById('btn-confirm-end').addEventListener('click', (e) => {
+  e.stopPropagation();
+  hideModal('modal-end-session');
+  
+  // End session logic
+  saveHighScores(true);
+  resetBoard();
+  isGameOver = false; // ensure we aren't stuck in Game Over state
+  startFadeScore();
+  resetScore();
+  startAmbientMusic();
+  isPaused = false;
 });
 
 function showHighScores() {
@@ -249,7 +281,7 @@ const activeGameMode = getActiveGameMode();
 const activeMatchMode = getActiveMatchMode();
 
 if (activeGameMode.id === 'chill') {
-  document.getElementById('btn-end-session').classList.remove('hidden');
+  document.getElementById('dropdown-btn-end-session').classList.remove('hidden');
 }
 
 const savedState = loadGameState(getCombinedModeId());
@@ -441,9 +473,9 @@ async function switchGameMode(newModeId) {
   saveGame();                     // persist current mode state
   setActiveGameMode(newModeId);       // persist new selection
   if (newModeId === 'chill') {
-    document.getElementById('btn-end-session').classList.remove('hidden');
+    document.getElementById('dropdown-btn-end-session').classList.remove('hidden');
   } else {
-    document.getElementById('btn-end-session').classList.add('hidden');
+    document.getElementById('dropdown-btn-end-session').classList.add('hidden');
   }
 
   // Update UI active states
