@@ -4,7 +4,7 @@
 
 import { GRID_COLS, GRID_ROWS, PIECE_COLORS, BOMB_INITIAL_TIMER } from './constants.js';
 import { getNeighbors } from './hex-math.js';
-import { getActiveMode } from './modes.js';
+import { getActiveGameMode, getActiveMatchMode } from './modes.js';
 
 /**
  * A cell in the grid.
@@ -254,11 +254,10 @@ export function findTriangleMatches(grid, cols = GRID_COLS, rows = GRID_ROWS) {
 }
 
 /**
- * Find matches using the matching mode specified by the active game mode.
- * Falls back to line matching if matchMode is 'line'.
+ * Find matches using the matching mode specified by the active match mode.
  */
 export function findMatchesForMode(grid, cols = GRID_COLS, rows = GRID_ROWS) {
-  return getActiveMode().matchMode === 'triangle'
+  return getActiveMatchMode().matchMode === 'triangle'
     ? findTriangleMatches(grid, cols, rows)
     : findMatches(grid, cols, rows);
 }

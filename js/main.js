@@ -26,7 +26,11 @@ import {
   spawnCreationParticles, spawnScorePopup,
   getLogoBounds,
 } from './renderer.js';
-import { loadActiveMode, getActiveMode, getActiveModeId, setActiveMode, getAllModes } from './modes.js';
+import {
+  loadActiveMode, getActiveGameMode, getActiveMatchMode, 
+  getActiveGameModeId, getActiveMatchModeId, getCombinedModeId,
+  setActiveGameMode, setActiveMatchMode, getAllGameModes, getAllMatchModes
+} from './modes.js';
 import { hexToPixel, getNeighbors, pixelToHex, findClusterAtPixel } from './hex-math.js';
 import {
   initInput, getHoverCluster, consumeAction, getLastClickPos, getMousePos, triggerAction,
@@ -122,22 +126,43 @@ document.getElementById('btn-newgame').addEventListener('click', (e) => {
   resetGame();
 });
 
-// Mode selector modal bindings
-document.getElementById('btn-mode-arcade').addEventListener('click', (e) => {
-  e.stopPropagation();
-  switchMode('arcade');
+// Dropdown Mode Selector bindings
+const logoDropdown = document.getElementById('logo-dropdown');
+
+function toggleModeDropdown() {
+  if (logoDropdown.classList.contains('hidden')) {
+    logoDropdown.classList.remove('hidden');
+    // Sync UI state
+    document.querySelectorAll('[data-mode]').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.mode === getActiveGameModeId());
+    });
+    document.querySelectorAll('[data-match]').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.match === getActiveMatchModeId());
+    });
+  } else {
+    logoDropdown.classList.add('hidden');
+  }
+}
+
+// Close dropdown if clicking elsewhere
+window.addEventListener('click', (e) => {
+  if (!logoDropdown.contains(e.target) && state === 'idle') {
+    // Rely on canvas click handler instead since standard clicks intercept on canvas
+  }
 });
-document.getElementById('btn-mode-chill').addEventListener('click', (e) => {
-  e.stopPropagation();
-  switchMode('chill');
+
+document.querySelectorAll('[data-mode]').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    switchGameMode(btn.dataset.mode);
+  });
 });
-document.getElementById('btn-mode-triangle').addEventListener('click', (e) => {
-  e.stopPropagation();
-  switchMode('triangle');
-});
-document.getElementById('btn-close-mode').addEventListener('click', (e) => {
-  e.stopPropagation();
-  closeModeSelectorModal();
+
+document.querySelectorAll('[data-match]').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    switchMatchMode(btn.dataset.match);
+  });
 });
 
 // Settings Modal bindings
@@ -183,10 +208,12 @@ document.getElementById('btn-end-session').addEventListener('click', (e) => {
 
 function showHighScores() {
   const list = document.getElementById('high-scores-list');
-  const modeId = getActiveModeId();
-  const scores = getHighScores(modeId);
+  const combinedId = getCombinedModeId();
+  const scores = getHighScores(combinedId);
   const modeLabelEl = document.getElementById('hs-mode-label');
-  if (modeLabelEl) modeLabelEl.textContent = getActiveMode().label;
+  if (modeLabelEl) {
+    modeLabelEl.textContent = `${getActiveGameMode().label} - ${getActiveMatchMode().label}`;
+  }
   
   if (scores.length === 0) {
     list.innerHTML = '<li>No scores yet!</li>';
@@ -217,13 +244,15 @@ window.addEventListener('resize', () => resize(canvas));
 
 // Restore active mode then load per-mode saved state
 loadActiveMode();
-const activeMode = getActiveMode();
-document.getElementById('mode-badge').textContent = activeMode.label;
-if (activeMode.id === 'chill') {
+const activeGameMode = getActiveGameMode();
+const activeMatchMode = getActiveMatchMode();
+updateModeBadge();
+
+if (activeGameMode.id === 'chill') {
   document.getElementById('btn-end-session').classList.remove('hidden');
 }
 
-const savedState = loadGameState(getActiveModeId());
+const savedState = loadGameState(getCombinedModeId());
 if (savedState) {
   grid = savedState.grid;
   restoreScore(savedState);
@@ -329,13 +358,18 @@ function trySelect() {
     return;
   }
 
-  // Logo hit-test: clicking the logo opens the mode selector
+  // Logo hit-test: clicking the logo toggles the mode dropdown
   const logo = getLogoBounds();
   if (logo &&
       clickPos.x >= logo.x && clickPos.x <= logo.x + logo.w &&
       clickPos.y >= logo.y && clickPos.y <= logo.y + logo.h) {
-    openModeSelector();
+    toggleModeDropdown();
     return;
+  } else {
+    // Clicking outside closes it
+    if (!logoDropdown.classList.contains('hidden')) {
+      logoDropdown.classList.add('hidden');
+    }
   }
 
   const hex = pixelToHex(clickPos.x, clickPos.y, originX, originY);
@@ -402,33 +436,49 @@ function trySelect() {
 
 // ─── Mode selector ──────────────────────────────────────────────
 
-function openModeSelector() {
-  isPaused = true;
-  const currentId = getActiveModeId();
-  for (const m of getAllModes()) {
-    document.getElementById(`btn-mode-${m.id}`)
-      ?.classList.toggle('mode-active', m.id === currentId);
-  }
-  document.getElementById('modal-mode').classList.remove('hidden');
+function updateModeBadge() {
+  document.getElementById('mode-badge').textContent = `${getActiveGameMode().label} - ${getActiveMatchMode().label}`;
 }
 
-async function switchMode(newModeId) {
-  if (newModeId === getActiveModeId()) { closeModeSelectorModal(); return; }
+async function switchGameMode(newModeId) {
+  if (newModeId === getActiveGameModeId()) return;
   saveGame();                     // persist current mode state
-  setActiveMode(newModeId);       // persist new selection
+  setActiveGameMode(newModeId);       // persist new selection
   
-  const modeLabel = getActiveMode().label;
-  document.getElementById('mode-badge').textContent = modeLabel;
+  updateModeBadge();
   if (newModeId === 'chill') {
     document.getElementById('btn-end-session').classList.remove('hidden');
   } else {
     document.getElementById('btn-end-session').classList.add('hidden');
   }
 
-  clearAllOverrides();            // clean up any in-progress animation state
+  // Update UI active states
+  document.querySelectorAll('[data-mode]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === newModeId);
+  });
+
+  resetBoardForNewMode();
+}
+
+async function switchMatchMode(newModeId) {
+  if (newModeId === getActiveMatchModeId()) return;
+  saveGame();
+  setActiveMatchMode(newModeId);
+  updateModeBadge();
+
+  document.querySelectorAll('[data-match]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.match === newModeId);
+  });
+
+  resetBoardForNewMode();
+}
+
+function resetBoardForNewMode() {
+  clearAllOverrides();
   bombQueued = false;
   selectedCluster = flowerCenter = pearlCenter = null;
-  const saved = loadGameState(newModeId);
+  const combinedId = getCombinedModeId();
+  const saved = loadGameState(combinedId);
   if (saved) {
     grid = saved.grid;
     restoreScore(saved);
@@ -441,14 +491,6 @@ async function switchMode(newModeId) {
   }
   state = 'idle';
   document.getElementById('modal-gameover').classList.add('hidden');
-  closeModeSelectorModal();
-}
-
-function closeModeSelectorModal() {
-  isPaused = false;
-  clearPendingAction();   // discard any ghost click that fired while modal was visible
-  document.getElementById('modal-mode').classList.add('hidden');
-  lastTime = performance.now();
 }
 
 // ─── Rotation animation ────────────────────────────────────────
@@ -476,6 +518,11 @@ async function animateRotation(clockwise) {
     }
 
     // 2. Check for matches or specials
+    const matchType = getActiveMatchMode().matchMode;
+    // We hack the old findMatchesForMode by changing to `findMatchesForMode(grid, GRID_COLS, GRID_ROWS, matchType)`?
+    // main.js imports `findMatchesForMode` which usually looks at `getActiveMode().matchMode`.
+    // Wait, findMatchesForMode currently looks up `getActiveMode().matchMode` on its own. Let's fix that.
+    // For now we'll just check `findMatchesForMode(grid, GRID_COLS, GRID_ROWS)`. We need to fix `board.js`.
     const matches = findMatchesForMode(grid, GRID_COLS, GRID_ROWS);
     const sfResults = detectStarflowers(grid);
     const bpResults = detectBlackPearls(grid);
@@ -789,7 +836,7 @@ async function animateBlackPearlCreation(bpResults) {
   }
 
   applyGravity(grid);
-  const mode = getActiveMode();
+  const mode = getActiveGameMode();
   const filled = fillEmpty(grid, undefined, undefined, undefined, mode.hasBombs && bombQueued);
   if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
 }
@@ -798,7 +845,7 @@ async function animateBlackPearlCreation(bpResults) {
 async function postRotationCheck() {
   moveCount++;
 
-  const mode = getActiveMode();
+  const mode = getActiveGameMode();
 
   // Tick bomb timers and spawn new bombs only in modes that support them
   if (mode.hasBombs) {
@@ -871,8 +918,9 @@ async function postRotationCheck() {
 
 async function handleGameOver(isSessionEnd = false) {
   state = 'gameover';
-  clearGameState(getActiveModeId());
-  addHighScore(getActiveModeId(), getScore());
+  const combinedId = getCombinedModeId();
+  clearGameState(combinedId);
+  addHighScore(combinedId, getScore());
   console.log('Game/Session Over. High score saved.');
 
   // 1. Show Game Over Modal
@@ -972,7 +1020,7 @@ function resetGame() {
 }
 
 function saveGame() {
-  saveGameState(getActiveModeId(), {
+  saveGameState(getCombinedModeId(), {
     grid,
     moveCount,
     score: getScore(),
@@ -1108,7 +1156,7 @@ async function animateStarflowerCreation(sfResults) {
 
   applyGravity(grid);
   {
-    const mode = getActiveMode();
+    const mode = getActiveGameMode();
     const filled = fillEmpty(grid, undefined, undefined, undefined, mode.hasBombs && bombQueued);
     if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
   }
@@ -1319,7 +1367,7 @@ async function runCascade(initialMatches) {
   // Commit gravity and fill
   applyGravity(grid);
   {
-    const mode = getActiveMode();
+    const mode = getActiveGameMode();
     const filled = fillEmpty(grid, undefined, undefined, undefined, mode.hasBombs && bombQueued);
     if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
   }
