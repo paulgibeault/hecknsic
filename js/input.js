@@ -14,6 +14,7 @@ let pendingAction = null;  // { type: 'select'|'rotateCW'|'rotateCCW' }
 
 export function getHoverCluster() { return hoverCluster; }
 export function getLastClickPos() { return lastClickPos; }
+export function getMousePos() { return { x: mouseX, y: mouseY }; }
 
 /**
  * Consume and return the next pending action, or null.

@@ -5,6 +5,7 @@
 const MODES = {
   arcade: { id: 'arcade', label: 'Arcade', hasBombs: true,  hasGameOver: true,  matchMode: 'line' },
   chill:  { id: 'chill',  label: 'Chill',  hasBombs: false, hasGameOver: false, matchMode: 'line' },
+  triangle: { id: 'triangle', label: 'Triangle', hasBombs: true, hasGameOver: true, matchMode: 'triangle' },
 };
 
 let activeModeId = 'arcade';

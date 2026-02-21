@@ -29,7 +29,7 @@ import {
 import { loadActiveMode, getActiveMode, getActiveModeId, setActiveMode, getAllModes } from './modes.js';
 import { hexToPixel, getNeighbors, pixelToHex, findClusterAtPixel } from './hex-math.js';
 import {
-  initInput, getHoverCluster, consumeAction, getLastClickPos, triggerAction,
+  initInput, getHoverCluster, consumeAction, getLastClickPos, getMousePos, triggerAction,
   setKeyBindings, clearPendingAction,
 } from './input.js';
 import { tween, updateTweens, easeOutCubic, easeOutBounce } from './tween.js';
@@ -131,14 +131,62 @@ document.getElementById('btn-mode-chill').addEventListener('click', (e) => {
   e.stopPropagation();
   switchMode('chill');
 });
+document.getElementById('btn-mode-triangle').addEventListener('click', (e) => {
+  e.stopPropagation();
+  switchMode('triangle');
+});
 document.getElementById('btn-close-mode').addEventListener('click', (e) => {
   e.stopPropagation();
   closeModeSelectorModal();
 });
 
+// Settings Modal bindings
+document.getElementById('btn-settings').addEventListener('click', (e) => {
+  e.stopPropagation();
+  isPaused = true;
+  document.getElementById('modal-settings').classList.remove('hidden');
+});
+document.getElementById('btn-close-settings').addEventListener('click', (e) => {
+  e.stopPropagation();
+  isPaused = false;
+  document.getElementById('modal-settings').classList.add('hidden');
+  saveSettings(settings); // Persist updated bindings
+  lastTime = performance.now();
+});
+
+// Setup keybind inputs
+function bindKeyInput(id, keyName) {
+  const el = document.getElementById(id);
+  el.value = settings.keyBindings[keyName] || '';
+  el.addEventListener('keydown', (e) => {
+    e.preventDefault();
+    if (e.key === 'Escape') {
+      e.target.blur();
+      return;
+    }
+    const key = e.key.toLowerCase();
+    if (key.length === 1 || key.startsWith('arrow')) {
+      settings.keyBindings[keyName] = key;
+      el.value = key;
+      setKeyBindings(settings.keyBindings);
+    }
+  });
+}
+bindKeyInput('bind-ccw', 'rotateCW');
+bindKeyInput('bind-cw', 'rotateCCW');
+
+// Chill Mode end session
+document.getElementById('btn-end-session').addEventListener('click', (e) => {
+  e.stopPropagation();
+  handleGameOver(true);
+});
+
 function showHighScores() {
   const list = document.getElementById('high-scores-list');
-  const scores = getHighScores(getActiveModeId());
+  const modeId = getActiveModeId();
+  const scores = getHighScores(modeId);
+  const modeLabelEl = document.getElementById('hs-mode-label');
+  if (modeLabelEl) modeLabelEl.textContent = getActiveMode().label;
   
   if (scores.length === 0) {
     list.innerHTML = '<li>No scores yet!</li>';
@@ -169,6 +217,12 @@ window.addEventListener('resize', () => resize(canvas));
 
 // Restore active mode then load per-mode saved state
 loadActiveMode();
+const activeMode = getActiveMode();
+document.getElementById('mode-badge').textContent = activeMode.label;
+if (activeMode.id === 'chill') {
+  document.getElementById('btn-end-session').classList.remove('hidden');
+}
+
 const savedState = loadGameState(getActiveModeId());
 if (savedState) {
   grid = savedState.grid;
@@ -248,6 +302,15 @@ function gameLoop(timestamp) {
   drawFrame(grid, hover, (state === 'selected' ? selectedCluster : null));
 
   updateControlsVisibility();
+
+  // Update cursor affordance based on logo hover
+  const mousePos = getMousePos();
+  const logo = getLogoBounds();
+  if (logo && mousePos.x >= logo.x && mousePos.x <= logo.x + logo.w && mousePos.y >= logo.y && mousePos.y <= logo.y + logo.h) {
+    canvas.style.cursor = 'pointer';
+  } else {
+    canvas.style.cursor = '';
+  }
 
   requestAnimationFrame(gameLoop);
 }
@@ -353,6 +416,15 @@ async function switchMode(newModeId) {
   if (newModeId === getActiveModeId()) { closeModeSelectorModal(); return; }
   saveGame();                     // persist current mode state
   setActiveMode(newModeId);       // persist new selection
+  
+  const modeLabel = getActiveMode().label;
+  document.getElementById('mode-badge').textContent = modeLabel;
+  if (newModeId === 'chill') {
+    document.getElementById('btn-end-session').classList.remove('hidden');
+  } else {
+    document.getElementById('btn-end-session').classList.add('hidden');
+  }
+
   clearAllOverrides();            // clean up any in-progress animation state
   bombQueued = false;
   selectedCluster = flowerCenter = pearlCenter = null;
@@ -732,11 +804,17 @@ async function postRotationCheck() {
   if (mode.hasBombs) {
     const bombExpired = tickBombs(grid);
     if (bombExpired && mode.hasGameOver) {
-      handleGameOver();
+      handleGameOver(false);
       return;
     }
-    // Spawn bombs periodically (queue for next fill)
-    if (moveCount % BOMB_SPAWN_INTERVAL === 0) bombQueued = true;
+    // Difficulty scaling: dynamically calculate interval based on score
+    // Max 15 moves per bomb initially, eventually scaling down to every 4 moves.
+    const currentScore = getScore();
+    // E.g. spawn interval decreases by 1 for every 5000 score, min 4
+    let dynamicInterval = 15 - Math.floor(currentScore / 5000);
+    if (dynamicInterval < 4) dynamicInterval = 4;
+    
+    if (moveCount % dynamicInterval === 0) bombQueued = true;
   }
 
   const matches = findMatchesForMode(grid, GRID_COLS, GRID_ROWS);
@@ -791,13 +869,29 @@ async function postRotationCheck() {
   }
 }
 
-async function handleGameOver() {
+async function handleGameOver(isSessionEnd = false) {
   state = 'gameover';
   clearGameState(getActiveModeId());
   addHighScore(getActiveModeId(), getScore());
-  console.log('Game Over. High score saved.');
+  console.log('Game/Session Over. High score saved.');
 
   // 1. Show Game Over Modal
+  const gameOverMsgEl = document.querySelector('.gameover-message');
+  if (isSessionEnd) {
+    document.querySelector('#modal-gameover h2').textContent = 'SESSION ENDED';
+    document.querySelector('#modal-gameover h2').style.color = '#50B0FF';
+    document.querySelector('#modal-gameover h2').style.borderColor = '#50B0FF';
+    if (gameOverMsgEl) gameOverMsgEl.style.display = 'none';
+  } else {
+    document.querySelector('#modal-gameover h2').textContent = 'GAME OVER';
+    document.querySelector('#modal-gameover h2').style.color = '#ff4444';
+    document.querySelector('#modal-gameover h2').style.borderColor = '#ff4444';
+    if (gameOverMsgEl) {
+      gameOverMsgEl.style.display = 'block';
+      gameOverMsgEl.textContent = '💣 A bomb exploded!';
+    }
+  }
+
   document.getElementById('go-score').textContent = getScore().toLocaleString();
   document.getElementById('go-combo').textContent = `x${getComboCount()}`;
   document.getElementById('modal-gameover').classList.remove('hidden');
