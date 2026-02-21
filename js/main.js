@@ -273,6 +273,28 @@ window.addEventListener('resize', () => resize(canvas));
 
 // Restore active mode then load per-mode saved state
 loadActiveMode();
+
+// ─── URL Configuration Parsing ──────────────────────────────────
+const urlParams = new URLSearchParams(window.location.search);
+let hasUrlConfig = false;
+
+const urlGameMode = urlParams.get('game');
+if (urlGameMode && getAllGameModes().some(m => m.id === urlGameMode)) {
+  setActiveGameMode(urlGameMode);
+  hasUrlConfig = true;
+}
+
+const urlMatchMode = urlParams.get('match');
+if (urlMatchMode && getAllMatchModes().some(m => m.id === urlMatchMode)) {
+  setActiveMatchMode(urlMatchMode);
+  hasUrlConfig = true;
+}
+
+// Strip URL params so refreshing doesn't lock the user into the linked config
+if (hasUrlConfig) {
+  const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+  window.history.replaceState({ path: cleanUrl }, '', cleanUrl);
+}
 const activeGameMode = getActiveGameMode();
 const activeMatchMode = getActiveMatchMode();
 
