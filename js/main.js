@@ -230,14 +230,8 @@ document.getElementById('btn-confirm-end').addEventListener('click', (e) => {
   e.stopPropagation();
   endSessionModal.classList.add('hidden');
   
-  // End session logic
-  saveHighScores(true);
-  resetBoard();
-  isGameOver = false; // ensure we aren't stuck in Game Over state
-  startFadeScore();
-  resetScore();
-  startAmbientMusic();
-  isPaused = false;
+  // End session logic: trigger explosion sequence
+  handleGameOver(true);
 });
 
 function showHighScores() {
