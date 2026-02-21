@@ -29,6 +29,19 @@ let floatingPieces = [];  // { x, y, colorIndex, scale, alpha }
 // Creation celebration particles
 let creationParticles = [];  // { x, y, vx, vy, life, maxLife, size, hue }
 
+// ─── Combo overlay state ─────────────────────────────────────────
+let comboDispCount = 0;   // peak combo count seen this cascade
+let comboDispChain = 0;   // peak chain level seen this cascade
+let comboFadeStart = 0;   // timestamp when fade-out began (0 = not fading)
+let comboRotation  = 0;   // random tilt angle, re-rolled each tier upgrade
+let comboLastTier  = -1;  // last rendered tier index (for re-roll detection)
+
+// Label tier thresholds (by combo count)
+const COMBO_THRESHOLDS = [2,  8,  12,  16,  20,  24];
+const COMBO_LABELS     = ['COMBO', 'NICE!', 'SWEET!', 'AMAZING!', 'INSANE!', 'LEGENDARY!'];
+const COMBO_COLORS     = ['#FFD740', '#FF9800', '#FF5722', '#E040FB', '#7C4DFF', '#4FC3F7'];
+const COMBO_FADE_MS    = 1200;
+
 const logoImg = new Image();
 logoImg.src = 'img/logo_header.png';
 
@@ -240,6 +253,9 @@ export function drawFrame(grid, hoverCluster, selectedCluster) {
 
   // Creation celebration particles
   updateAndDrawParticles();
+
+  // Combo overlay (above particles, below HUD)
+  drawComboOverlay();
 
   // HUD
   drawHUD();
@@ -688,6 +704,92 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
+// ─── Combo overlay ──────────────────────────────────────────────
+
+function comboTierIdx(count) {
+  for (let i = COMBO_THRESHOLDS.length - 1; i >= 0; i--) {
+    if (count >= COMBO_THRESHOLDS[i]) return i;
+  }
+  return 0;
+}
+
+function drawComboOverlay() {
+  const combo = getComboCount();
+  const chain = getChainLevel();
+  const now   = Date.now();
+
+  if (combo > 0 || chain > 0) {
+    // Cascade is active — track peaks and cancel any fade-out
+    if (combo > comboDispCount) comboDispCount = combo;
+    if (chain > comboDispChain) comboDispChain = chain;
+    comboFadeStart = 0;
+
+    // Re-roll rotation whenever the label tier upgrades
+    const tier = comboTierIdx(comboDispCount);
+    if (tier !== comboLastTier) {
+      comboLastTier = tier;
+      comboRotation = (Math.random() - 0.5) * 0.32; // ±~9°
+    }
+  } else if (comboDispCount > 1 && comboFadeStart === 0) {
+    // Cascade just ended — begin fade-out
+    comboFadeStart = now;
+  }
+
+  // Nothing to show until there's been at least 2 match events
+  if (comboDispCount <= 1 && comboFadeStart === 0) return;
+
+  // Fade alpha
+  let alpha = 0.78;
+  if (comboFadeStart > 0) {
+    const elapsed = now - comboFadeStart;
+    if (elapsed >= COMBO_FADE_MS) {
+      comboDispCount = 0;
+      comboDispChain = 0;
+      comboFadeStart = 0;
+      comboLastTier  = -1;
+      return;
+    }
+    alpha *= 1 - elapsed / COMBO_FADE_MS;
+  }
+
+  const tierIdx     = comboTierIdx(comboDispCount);
+  const label       = COMBO_LABELS[tierIdx];
+  const color       = COMBO_COLORS[tierIdx];
+  const glow        = 8 + tierIdx * 10;
+
+  // Position: center of board, upper third
+  const gridPixelH  = GRID_ROWS * Math.sqrt(3) * HEX_SIZE + Math.sqrt(3) / 2 * HEX_SIZE;
+  const cx = canvasW / boardScale / 2;
+  const cy = originY + gridPixelH * 0.28;
+
+  // Font — gentle pulse
+  const pulse       = 1 + 0.06 * Math.sin(now / 140);
+  const labelFontPx = (32 + tierIdx * 8) * pulse;
+  const countFontPx = labelFontPx * 0.5;
+
+  ctx.save();
+  ctx.globalAlpha  = alpha;
+  ctx.translate(cx, cy);
+  ctx.rotate(comboRotation);
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+
+  // Label
+  ctx.shadowColor = color;
+  ctx.shadowBlur  = glow;
+  ctx.fillStyle   = color;
+  ctx.font = `bold ${labelFontPx}px "Segoe UI", system-ui, sans-serif`;
+  ctx.fillText(label, 0, -countFontPx * 0.6);
+
+  // Count
+  ctx.shadowBlur  = glow * 0.5;
+  ctx.fillStyle   = '#FFFFFF';
+  ctx.font = `bold ${countFontPx}px "Segoe UI", system-ui, sans-serif`;
+  ctx.fillText(`x${comboDispCount}`, 0, labelFontPx * 0.45);
+
+  ctx.restore();
+}
+
 // ─── HUD ────────────────────────────────────────────────────────
 
 function drawHUD() {
@@ -712,13 +814,6 @@ function drawHUD() {
   // Move score left to avoid overlap with top-right buttons
   ctx.fillText(`SCORE  ${getDisplayScore()}`, canvasW / boardScale - 140, 35);
 
-  const combo = getComboCount();
-  if (combo > 1) {
-    ctx.fillStyle = '#FFD740';
-    ctx.font = 'bold 16px "Segoe UI", system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(`COMBO x${combo}`, canvasW / boardScale / 2, 28);
-  }
 }
 
 // ─── Helpers ────────────────────────────────────────────────────
