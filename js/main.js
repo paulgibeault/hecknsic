@@ -221,13 +221,14 @@ document.getElementById('dropdown-btn-end-session').addEventListener('click', (e
 
 document.getElementById('btn-cancel-end').addEventListener('click', (e) => {
   e.stopPropagation();
-  hideModal('modal-end-session');
+  endSessionModal.classList.add('hidden');
+  isPaused = false;
   // allow board interactions again
 });
 
 document.getElementById('btn-confirm-end').addEventListener('click', (e) => {
   e.stopPropagation();
-  hideModal('modal-end-session');
+  endSessionModal.classList.add('hidden');
   
   // End session logic
   saveHighScores(true);
