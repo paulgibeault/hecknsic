@@ -22,7 +22,7 @@ import {
   initRenderer, resize, drawFrame, getOrigin,
   setCellOverride, clearAllOverrides,
   addFloatingPiece, removeFloatingPiece,
-  spawnCreationParticles,
+  spawnCreationParticles, spawnScorePopup,
 } from './renderer.js';
 import { hexToPixel, getNeighbors, pixelToHex, findClusterAtPixel } from './hex-math.js';
 import {
@@ -1079,7 +1079,21 @@ async function runCascade(initialMatches) {
   }, easeOutCubic).promise;
 
   // ── Remove matched cells ───────────────────────────────────
-  awardMatch(matches.size, scoreBonus);
+  const points = awardMatch(matches.size, scoreBonus);
+
+  // Floating score popup at centroid of cleared cells
+  {
+    const { originX, originY } = getOrigin();
+    let sumX = 0, sumY = 0;
+    for (const key of matches) {
+      const [c, r] = key.split(',').map(Number);
+      const px = hexToPixel(c, r, originX, originY);
+      sumX += px.x;
+      sumY += px.y;
+    }
+    spawnScorePopup(sumX / matches.size, sumY / matches.size, points, getChainLevel());
+  }
+
   for (const key of matches) {
     const [c, r] = key.split(',').map(Number);
     grid[c][r] = null;

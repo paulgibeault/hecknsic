@@ -41,7 +41,7 @@ export const HIGHLIGHT_COLOR  = 'rgba(255, 255, 255, 0.85)';
 export const CLUSTER_HIGHLIGHT = 'rgba(255, 255, 200, 0.55)';
 
 // ─── Scoring ────────────────────────────────────────────────────
-export const SCORE_BASE = { 3: 10, 4: 20, 5: 40 };
+export const SCORE_BASE = { 3: 5, 4: 10, 5: 20 };
 export const CHAIN_MULTIPLIER_BASE = 1.5;
 
 // ─── Timing ─────────────────────────────────────────────────────

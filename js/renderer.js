@@ -30,15 +30,19 @@ let floatingPieces = [];  // { x, y, colorIndex, scale, alpha }
 let creationParticles = [];  // { x, y, vx, vy, life, maxLife, size, hue }
 
 // ─── Combo overlay state ─────────────────────────────────────────
-let comboDispCount = 0;   // peak combo count seen this cascade
-let comboDispChain = 0;   // peak chain level seen this cascade
-let comboFadeStart = 0;   // timestamp when fade-out began (0 = not fading)
-let comboRotation  = 0;   // random tilt angle, re-rolled each tier upgrade
-let comboLastTier  = -1;  // last rendered tier index (for re-roll detection)
+let comboDispCount   = 0;   // peak combo count seen this cascade
+let comboDispChain   = 0;   // peak chain level seen this cascade
+let comboFadeStart   = 0;   // timestamp when fade-out began (0 = not fading)
+let comboRotation    = 0;   // random tilt angle, re-rolled each tier upgrade
+let comboLastTier    = -1;  // last rendered tier index (for re-roll detection)
+let comboTierShowTime = 0;  // timestamp when current tier first appeared (for pop-in)
+
+// ─── Score popup state ───────────────────────────────────────────
+let scorePopups = [];  // { x, y, vy, text, life, maxLife, fontSize, color }
 
 // Label tier thresholds (by combo count)
 const COMBO_THRESHOLDS = [2,  8,  12,  16,  20,  24];
-const COMBO_LABELS     = ['COMBO', 'NICE!', 'SWEET!', 'AMAZING!', 'INSANE!', 'LEGENDARY!'];
+const COMBO_LABELS     = ['COMBO', 'NICE!', 'SWEET!', 'AMAZING!', 'SICK!', 'HECKN SIC!'];
 const COMBO_COLORS     = ['#FFD740', '#FF9800', '#FF5722', '#E040FB', '#7C4DFF', '#4FC3F7'];
 const COMBO_FADE_MS    = 1200;
 
@@ -253,6 +257,9 @@ export function drawFrame(grid, hoverCluster, selectedCluster) {
 
   // Creation celebration particles
   updateAndDrawParticles();
+
+  // Floating score numbers
+  updateAndDrawScorePopups();
 
   // Combo overlay (above particles, below HUD)
   drawComboOverlay();
@@ -704,6 +711,56 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
+// ─── Easing helpers ─────────────────────────────────────────────
+
+function easeOutBack(t) {
+  const c1 = 1.70158;
+  const c3 = c1 + 1;
+  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+}
+
+// ─── Score popups ────────────────────────────────────────────────
+
+export function spawnScorePopup(x, y, points, chainLevel = 0) {
+  const colors = ['#FFFFFF', '#FFD740', '#FF9800', '#FF5722', '#E040FB', '#7C4DFF'];
+  scorePopups.push({
+    x,
+    y,
+    vy: -0.9,
+    text: `+${points.toLocaleString()}`,
+    life: 1.0,
+    maxLife: 80,
+    fontSize: 15 + Math.min(chainLevel, 4) * 3,
+    color: colors[Math.min(chainLevel, colors.length - 1)],
+  });
+}
+
+function updateAndDrawScorePopups() {
+  if (scorePopups.length === 0) return;
+  for (let i = scorePopups.length - 1; i >= 0; i--) {
+    const p = scorePopups[i];
+    p.y  += p.vy;
+    p.vy *= 0.97;
+    p.life -= 1 / p.maxLife;
+    if (p.life <= 0) { scorePopups.splice(i, 1); continue; }
+
+    const t      = 1 - p.life;
+    const popIn  = t < 0.12 ? easeOutBack(t / 0.12) : 1;
+    const fadeA  = p.life < 0.35 ? p.life / 0.35 : 1;
+
+    ctx.save();
+    ctx.globalAlpha  = fadeA * 0.92;
+    ctx.font         = `bold ${p.fontSize * popIn}px "Segoe UI", system-ui, sans-serif`;
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor  = p.color;
+    ctx.shadowBlur   = 8;
+    ctx.fillStyle    = p.color;
+    ctx.fillText(p.text, p.x, p.y);
+    ctx.restore();
+  }
+}
+
 // ─── Combo overlay ──────────────────────────────────────────────
 
 function comboTierIdx(count) {
@@ -724,11 +781,12 @@ function drawComboOverlay() {
     if (chain > comboDispChain) comboDispChain = chain;
     comboFadeStart = 0;
 
-    // Re-roll rotation whenever the label tier upgrades
+    // Re-roll rotation and restart pop-in whenever the label tier upgrades
     const tier = comboTierIdx(comboDispCount);
     if (tier !== comboLastTier) {
-      comboLastTier = tier;
-      comboRotation = (Math.random() - 0.5) * 0.32; // ±~9°
+      comboLastTier    = tier;
+      comboRotation    = (Math.random() - 0.5) * 0.32; // ±~9°
+      comboTierShowTime = now;
     }
   } else if (comboDispCount > 1 && comboFadeStart === 0) {
     // Cascade just ended — begin fade-out
@@ -738,8 +796,8 @@ function drawComboOverlay() {
   // Nothing to show until there's been at least 2 match events
   if (comboDispCount <= 1 && comboFadeStart === 0) return;
 
-  // Fade alpha
-  let alpha = 0.78;
+  // Fade alpha (1 while active, ramps to 0 over COMBO_FADE_MS after cascade ends)
+  let alpha = 1;
   if (comboFadeStart > 0) {
     const elapsed = now - comboFadeStart;
     if (elapsed >= COMBO_FADE_MS) {
@@ -749,26 +807,35 @@ function drawComboOverlay() {
       comboLastTier  = -1;
       return;
     }
-    alpha *= 1 - elapsed / COMBO_FADE_MS;
+    alpha = 1 - elapsed / COMBO_FADE_MS;
   }
 
   const tierIdx     = comboTierIdx(comboDispCount);
   const label       = COMBO_LABELS[tierIdx];
   const color       = COMBO_COLORS[tierIdx];
-  const glow        = 8 + tierIdx * 10;
+  // No glow at tier 0 so it doesn't visually compensate for the low alpha;
+  // glow ramps up with each tier upgrade.
+  const glow        = tierIdx * 9;
 
-  // Position: center of board, upper third
+  // Size, position, and opacity all scale up with tier so low tiers stay unobtrusive
   const gridPixelH  = GRID_ROWS * Math.sqrt(3) * HEX_SIZE + Math.sqrt(3) / 2 * HEX_SIZE;
-  const cx = canvasW / boardScale / 2;
-  const cy = originY + gridPixelH * 0.28;
+  const cx  = canvasW / boardScale / 2;
+  // Tier 0 sits near the top of the board; higher tiers drift toward the center
+  const cy  = originY + gridPixelH * (0.10 + tierIdx * 0.028);
+  const baseAlpha = 0.20 + tierIdx * 0.12;  // 0.20 → 0.80 across tiers
 
-  // Font — gentle pulse
-  const pulse       = 1 + 0.06 * Math.sin(now / 140);
-  const labelFontPx = (32 + tierIdx * 8) * pulse;
-  const countFontPx = labelFontPx * 0.5;
+  // Pop-in scale: grows from ~0 with overshoot over 300ms when tier first appears
+  const INTRO_MS   = 300;
+  const introT     = comboTierShowTime ? Math.min((now - comboTierShowTime) / INTRO_MS, 1) : 1;
+  const introScale = easeOutBack(introT);
+
+  // Font — smaller base, grows meaningfully per tier; gentle pulse on top
+  const pulse       = 1 + 0.05 * Math.sin(now / 140);
+  const labelFontPx = (14 + tierIdx * 11) * pulse * introScale;  // 14px → 69px
+  const countFontPx = Math.max(10, labelFontPx * 0.5);
 
   ctx.save();
-  ctx.globalAlpha  = alpha;
+  ctx.globalAlpha  = alpha * baseAlpha;
   ctx.translate(cx, cy);
   ctx.rotate(comboRotation);
   ctx.textAlign    = 'center';
