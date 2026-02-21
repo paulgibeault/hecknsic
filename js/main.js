@@ -166,9 +166,10 @@ document.querySelectorAll('[data-match]').forEach(btn => {
 });
 
 // Settings Modal bindings
-document.getElementById('btn-settings').addEventListener('click', (e) => {
+document.getElementById('dropdown-btn-settings').addEventListener('click', (e) => {
   e.stopPropagation();
   isPaused = true;
+  logoDropdown.classList.add('hidden'); // Close the menu
   document.getElementById('modal-settings').classList.remove('hidden');
 });
 document.getElementById('btn-close-settings').addEventListener('click', (e) => {
