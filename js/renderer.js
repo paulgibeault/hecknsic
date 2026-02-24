@@ -20,6 +20,18 @@ let canvasW, canvasH;   // physical CSS pixel dimensions
 let originX, originY;   // hex grid origin in logical (design) space
 let boardScale = 1;     // scale applied to fit the board on small screens
 
+let isDirty = true;
+export function requestRedraw() { isDirty = true; }
+export function clearDirty() { isDirty = false; }
+export function getIsDirty() { return isDirty; }
+
+export function hasActiveRendererAnimations() {
+  return creationParticles.length > 0 ||
+         scorePopups.length > 0 ||
+         floatingPieces.length > 0 ||
+         comboFadeStart > 0;
+}
+
 // Per-cell animation overrides: "col,row" → { scale?, alpha?, offsetX?, offsetY?, hidden? }
 let cellOverrides = {};
 
@@ -201,7 +213,7 @@ export function drawFrame(grid, hoverCluster, selectedCluster) {
       if (cell.special === 'multiplier') {
         drawStarStamp(x + oOffX, y + oOffY, drawSize, oAlpha);
       } else if (cell.special) {
-        drawSpecialIndicator(x + oOffX, y + oOffY, drawSize * 0.5, cell.special, oAlpha, cell.bombTimer);
+        drawSpecialIndicator(x + oOffX, y + oOffY, drawSize * 0.75, cell.special, oAlpha, cell.bombTimer, cell.colorIndex);
       }
 
       // Shadow under scaled-up pieces
@@ -265,7 +277,7 @@ export function drawFrame(grid, hoverCluster, selectedCluster) {
     if (fp.special === 'multiplier') {
       drawStarStamp(fp.x, fp.y, fpSize, fp.alpha ?? 1);
     } else if (fp.special) {
-      drawSpecialIndicator(fp.x, fp.y, fpSize * 0.5, fp.special, fp.alpha ?? 1, fp.bombTimer);
+      drawSpecialIndicator(fp.x, fp.y, fpSize * 0.75, fp.special, fp.alpha ?? 1, fp.bombTimer, fp.colorIndex);
     }
   }
 
@@ -572,7 +584,7 @@ function drawBlackPearlHex(cx, cy, size, alpha = 1) {
   ctx.restore();
 }
 
-function drawSpecialIndicator(cx, cy, radius, type, alpha = 1, bombTimer) {
+function drawSpecialIndicator(cx, cy, radius, type, alpha = 1, bombTimer, colorIndex) {
   // Starflower/blackpearl indicators are built into their hex renderers
   if (type === 'starflower' || type === 'blackpearl') return;
 
@@ -581,56 +593,82 @@ function drawSpecialIndicator(cx, cy, radius, type, alpha = 1, bombTimer) {
 
   switch (type) {
     case 'bomb': {
-      // Dark circle background
-      ctx.beginPath();
-      ctx.arc(cx, cy, radius * 0.85, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(20, 20, 20, 0.8)';
-      ctx.fill();
-
-      // Fuse Arc (decreases as timer goes down)
-      // Max timer usually starts around 9-12? Let's assume max is around 10 for visual arc, 
-      // or just make it a full circle that depletes.
-      // Let's use a standard max of 10 for the full circle for now, or just proportional if we knew max.
-      // Since we don't track maxBombTimer easily here, we'll just imply a visual "danger" zone.
-      // Actually, let's just make it a full ring that glows.
-      
       const isLow = bombTimer <= 5;
-      const pulsing = 0.5 + 0.5 * Math.sin(Date.now() / 150);
+      const colorData = PIECE_COLORS[colorIndex] || { light: '#FFF', base: '#888' };
 
-      // Outer Ring / Fuse
+      // Spherical body inside the hex, keeping tile color visible
       ctx.beginPath();
-      // Draw a partial arc? Or just a full ring that changes color?
-      // Let's try a "fuse" style: 
-      // If timer is high (>5), yellow/orange. If low, flashing red.
-      ctx.arc(cx, cy, radius * 0.85, 0, Math.PI * 2);
-      ctx.strokeStyle = isLow 
-        ? `rgba(255, 50, 50, ${pulsing})` 
-        : 'rgba(255, 180, 50, 0.8)';
-      ctx.lineWidth = 3;
+      ctx.arc(cx, cy, radius * 0.95, 0, Math.PI * 2);
+      const sphereGrad = ctx.createRadialGradient(cx - radius * 0.2, cy - radius * 0.2, radius * 0.1, cx, cy, radius * 0.95);
+      sphereGrad.addColorStop(0, 'rgba(255, 255, 255, 0.25)'); // Glossy highlight
+      sphereGrad.addColorStop(0.5, 'rgba(42, 45, 53, 0.5)'); // Matches cap color (#2A2D35 partially transparent)
+      sphereGrad.addColorStop(1, 'rgba(21, 24, 28, 0.85)'); // Deep rim shadow
+      ctx.fillStyle = sphereGrad;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(21, 24, 28, 0.9)';
+      ctx.lineWidth = 1.5;
       ctx.stroke();
-      
-      // Little "fuse spark" rotating?
-      if (bombTimer > 0) {
-        const angle = (Date.now() / 300) % (Math.PI * 2);
-        const fuseX = cx + Math.cos(angle) * (radius * 0.85);
-        const fuseY = cy + Math.sin(angle) * (radius * 0.85);
-        
-        ctx.beginPath();
-        ctx.arc(fuseX, fuseY, 3, 0, Math.PI * 2);
-        ctx.fillStyle = isLow ? '#FFF' : '#FFD700';
-        ctx.fill();
-      }
 
-      // Timer number
+      // Longer wavy fuse
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - radius * 1.05);
+      const fuseEndX = cx + radius * 0.5;
+      const fuseEndY = cy - radius * 1.6;
+      // Curve up and right
+      ctx.quadraticCurveTo(cx - radius * 0.3, cy - radius * 1.4, fuseEndX, fuseEndY);
+      ctx.strokeStyle = '#666'; // Dark grey fuse
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+
+      // Sparking effect at the end of the fuse
+      // Even if the game is idle, drawing a static spark looks good.
+      const sparkCount = isLow ? 7 : 5;
+      const sparkRadius = isLow ? 6 : 4;
+      const sparkColor = isLow ? '#FF4040' : '#FFD700';
+      ctx.fillStyle = sparkColor;
+      ctx.beginPath();
+      ctx.arc(fuseEndX, fuseEndY, sparkRadius * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Jagged sparks
+      ctx.beginPath();
+      const timeOffset = Date.now() / 150; 
+      for(let i = 0; i < sparkCount; i++) {
+         const angle = (Math.PI * 2 / sparkCount) * i + timeOffset;
+         const dist = sparkRadius + Math.sin(timeOffset * 5 + i) * 3;
+         ctx.moveTo(fuseEndX, fuseEndY);
+         ctx.lineTo(fuseEndX + Math.cos(angle) * dist, fuseEndY + Math.sin(angle) * dist);
+      }
+      ctx.strokeStyle = sparkColor;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // "Bomb cap" at the top of the hex
+      ctx.beginPath();
+      ctx.roundRect(cx - radius * 0.5, cy - radius * 1.05, radius * 1.0, radius * 0.40, 3);
+      ctx.fillStyle = '#2A2D35';
+      ctx.fill();
+      ctx.strokeStyle = '#15181C';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Timer number (perfectly centered on the tile)
       if (bombTimer !== undefined) {
-        ctx.fillStyle = isLow ? '#FF4040' : '#FFFFFF';
-        ctx.font = `bold ${radius * 1.1}px "Segoe UI", system-ui, sans-serif`;
+        ctx.fillStyle = isLow ? '#FF4040' : colorData.light;
+        ctx.font = `bold ${radius * 1.4}px "Segoe UI", system-ui, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
+        
         ctx.shadowColor = 'rgba(0,0,0,0.8)';
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 2;
         ctx.shadowBlur = 4;
-        ctx.fillText(String(bombTimer), cx, cy + 2);
+        
+        ctx.fillText(String(bombTimer), cx, cy + 2); // +2 adjusts for typical sans-serif vertical centering
         ctx.shadowBlur = 0;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
       }
       break;
     }

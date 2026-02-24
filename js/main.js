@@ -21,10 +21,10 @@ import {
 } from './board.js';
 import {
   initRenderer, resize, drawFrame, getOrigin,
-  setCellOverride, clearAllOverrides,
+  setCellOverride, clearCellOverride, clearAllOverrides,
   addFloatingPiece, removeFloatingPiece,
   spawnCreationParticles, spawnScorePopup,
-  getLogoBounds,
+  getLogoBounds, requestRedraw, clearDirty, getIsDirty, hasActiveRendererAnimations
 } from './renderer.js';
 import {
   loadActiveMode, getActiveGameMode, getActiveMatchMode, 
@@ -36,11 +36,11 @@ import {
   initInput, getHoverCluster, consumeAction, getLastClickPos, getMousePos, triggerAction,
   setKeyBindings, clearPendingAction,
 } from './input.js';
-import { tween, updateTweens, easeOutCubic, easeOutBounce } from './tween.js';
+import { tween, updateTweens, easeOutCubic, easeOutBounce, hasActiveTweens, linear } from './tween.js';
 import {
   resetScore, awardMatch, advanceChain, resetChain,
   updateDisplayScore, restoreScore,
-  getScore, getDisplayScore, getChainLevel, getComboCount
+  getScore, getDisplayScore, getChainLevel, getComboCount, isScoreAnimating
 } from './score.js';
 import {
   detectStarflowers, detectStarflowersAtCleared,
@@ -142,6 +142,7 @@ function toggleModeDropdown() {
   } else {
     logoDropdown.classList.add('hidden');
   }
+  requestRedraw();
 }
 
 // Close dropdown if clicking elsewhere
@@ -178,6 +179,7 @@ document.getElementById('btn-close-settings').addEventListener('click', (e) => {
   document.getElementById('modal-settings').classList.add('hidden');
   saveSettings(settings); // Persist updated bindings
   lastTime = performance.now();
+  requestRedraw();
 });
 
 // Setup keybind inputs
@@ -223,6 +225,7 @@ document.getElementById('btn-cancel-end').addEventListener('click', (e) => {
   e.stopPropagation();
   endSessionModal.classList.add('hidden');
   isPaused = false;
+  requestRedraw();
   // allow board interactions again
 });
 
@@ -230,6 +233,7 @@ document.getElementById('btn-confirm-end').addEventListener('click', (e) => {
   e.stopPropagation();
   endSessionModal.classList.add('hidden');
   isPaused = false; // Must unpause so the tween game-loop can tick!
+  requestRedraw();
   
   // End session logic: trigger explosion sequence
   handleGameOver(true);
@@ -332,9 +336,12 @@ function gameLoop(timestamp) {
   updateDisplayScore(dt);
 
   // Game over: just render, no input
-  // Game Over: just render, no input
   if (state === 'gameover') {
-    drawFrame(grid, null, null);
+    const needsDraw = getIsDirty() || hasActiveTweens() || hasActiveRendererAnimations() || isScoreAnimating();
+    if (needsDraw) {
+      drawFrame(grid, null, null);
+      clearDirty();
+    }
     // drawGameOver(); // Handled by DOM overlay now
     
     // One-time game over handling (hacky: check if we just entered this state)
@@ -377,8 +384,12 @@ function gameLoop(timestamp) {
   // 'rotating' and 'cascading': input is NOT consumed (preserved for later)
 
   // Draw
-  const hover = (state === 'idle') ? getHoverCluster() : null;
-  drawFrame(grid, hover, (state === 'selected' ? selectedCluster : null));
+  const needsDraw = getIsDirty() || hasActiveTweens() || hasActiveRendererAnimations() || isScoreAnimating();
+  if (needsDraw) {
+    const hover = (state === 'idle') ? getHoverCluster() : null;
+    drawFrame(grid, hover, (state === 'selected' ? selectedCluster : null));
+    clearDirty();
+  }
 
   updateControlsVisibility();
 
@@ -534,6 +545,7 @@ function resetBoardForNewMode() {
   }
   state = 'idle';
   document.getElementById('modal-gameover').classList.add('hidden');
+  requestRedraw();
 }
 
 // ─── Rotation animation ────────────────────────────────────────
@@ -893,6 +905,26 @@ async function postRotationCheck() {
   // Tick bomb timers and spawn new bombs only in modes that support them
   if (mode.hasBombs) {
     const bombExpired = tickBombs(grid);
+    
+    // Animate bomb shake on tick
+    const bombCells = [];
+    for (let c = 0; c < GRID_COLS; c++) {
+      for (let r = 0; r < GRID_ROWS; r++) {
+        if (grid[c][r]?.special === 'bomb') bombCells.push({ c, r });
+      }
+    }
+    if (bombCells.length > 0) {
+      await tween(250, t => {
+        const shakeX = Math.sin(t * Math.PI * 6) * 4 * (1 - t);
+        for (const b of bombCells) {
+          setCellOverride(b.c, b.r, { offsetX: shakeX });
+        }
+        requestRedraw(); // MUST redraw during the tween!
+      }, linear).promise;
+      for (const b of bombCells) clearCellOverride(b.c, b.r);
+      requestRedraw();
+    }
+
     if (bombExpired && mode.hasGameOver) {
       handleGameOver(false);
       return;
@@ -951,9 +983,11 @@ async function postRotationCheck() {
         await animateBlackPearlCreation(bpResults);
         state = 'selected';
         saveGame();
+        requestRedraw();
       } else {
         state = 'selected';
         saveGame();
+        requestRedraw();
       }
     }
   }
@@ -1354,6 +1388,7 @@ async function runCascade(initialMatches) {
     grid[c][r] = null;
   }
   clearAllOverrides();
+  requestRedraw();
 
   // ── Starflower detection at cleared positions ──────────────
   const sfMid = detectStarflowersAtCleared(grid, matches);
@@ -1413,6 +1448,7 @@ async function runCascade(initialMatches) {
     const filled = fillEmpty(grid, undefined, undefined, undefined, mode.hasBombs && bombQueued);
     if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
   }
+  requestRedraw();
 
   // ── Starflower detection (after board settles) ─────────────
   const sfPost = detectStarflowers(grid);

@@ -13,6 +13,8 @@ export function getScore()       { return score; }
 export function getDisplayScore(){ return Math.round(displayScore); }
 export function getChainLevel()  { return chainLevel; }
 export function getComboCount()  { return comboCount; }
+export function isScoreAnimating(){ return Math.round(displayScore) < score; }
+
 
 export function resetScore() {
   score = 0;

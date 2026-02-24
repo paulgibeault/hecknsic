@@ -4,7 +4,7 @@
 
 import { GRID_COLS, GRID_ROWS } from './constants.js';
 import { pixelToHex, findClusterAtPixel } from './hex-math.js';
-import { getOrigin, getBoardScale } from './renderer.js';
+import { getOrigin, getBoardScale, requestRedraw } from './renderer.js';
 
 // ─── State ──────────────────────────────────────────────────────
 let mouseX = 0, mouseY = 0;
@@ -61,6 +61,7 @@ export function initInput(canvas) {
     mouseX = (e.clientX - rect.left) / s;
     mouseY = (e.clientY - rect.top) / s;
     updateHover();
+    requestRedraw();
   });
 
   canvas.addEventListener('click', e => {
@@ -69,11 +70,13 @@ export function initInput(canvas) {
     const s = getBoardScale();
     lastClickPos = { x: (e.clientX - rect.left) / s, y: (e.clientY - rect.top) / s };
     pendingAction = { type: 'select' };
+    requestRedraw();
   });
 
   canvas.addEventListener('contextmenu', e => {
     e.preventDefault();
     pendingAction = { type: 'rotateCCW' };
+    requestRedraw();
   });
 
   // Touch
@@ -87,6 +90,7 @@ export function initInput(canvas) {
     lastClickPos = { x: mouseX, y: mouseY };
     updateHover();
     pendingAction = { type: 'select' };
+    requestRedraw();
   }, { passive: false });
 
   canvas.addEventListener('touchmove', e => {
@@ -97,6 +101,7 @@ export function initInput(canvas) {
     mouseX = (touch.clientX - rect.left) / s;
     mouseY = (touch.clientY - rect.top) / s;
     updateHover();
+    requestRedraw();
   }, { passive: false });
 
   // Keyboard
@@ -106,10 +111,12 @@ export function initInput(canvas) {
     // Configurable keys
     if (key === keyBindings.rotateCW.toLowerCase()) {
       pendingAction = { type: 'rotateCW' };
+      requestRedraw();
       return;
     }
     if (key === keyBindings.rotateCCW.toLowerCase()) {
       pendingAction = { type: 'rotateCCW' };
+      requestRedraw();
       return;
     }
 
@@ -117,10 +124,12 @@ export function initInput(canvas) {
     // "Inverted" logic: Left Arrow -> CW (based on Q mapping), Right Arrow -> CCW (based on E mapping)
     if (e.key === 'ArrowLeft') {
       pendingAction = { type: 'rotateCW' };
+      requestRedraw();
       return;
     }
     if (e.key === 'ArrowRight') {
       pendingAction = { type: 'rotateCCW' };
+      requestRedraw();
       return;
     }
 
@@ -129,6 +138,7 @@ export function initInput(canvas) {
       case 'Enter':
         e.preventDefault();
         pendingAction = { type: 'select' };
+        requestRedraw();
         break;
     }
   });
