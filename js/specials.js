@@ -79,7 +79,8 @@ export function detectStarflowers(grid) {
   for (let c = 0; c < GRID_COLS; c++) {
     for (let r = 0; r < GRID_ROWS; r++) {
       const cell = grid[c][r];
-      if (!cell || cell.special === 'starflower' || cell.special === 'blackpearl') continue;
+      if (!cell) continue;
+      const centerAlreadySpecial = (cell.special === 'starflower' || cell.special === 'blackpearl');
 
       const nbrs = getNeighbors(c, r);
       const valid = nbrs.filter(n =>
@@ -88,14 +89,14 @@ export function detectStarflowers(grid) {
       if (valid.length !== 6) continue;
 
       const ringColor = grid[valid[0].col][valid[0].row].colorIndex;
-      if (ringColor >= 0 && ringColor !== cell.colorIndex &&
+      if (ringColor >= 0 && (centerAlreadySpecial || ringColor !== cell.colorIndex) &&
           valid.every(n => grid[n.col][n.row].colorIndex === ringColor)) {
-        // Mark center as starflower (silver chrome, unmatchable)
         // calculate center but do not mutate grid yet
         results.push({
           center: { col: c, row: r },
           ring: valid.map(n => ({ col: n.col, row: n.row })),
           ringColor,
+          centerAlreadySpecial,
         });
       }
     }
@@ -116,7 +117,8 @@ export function detectBlackPearls(grid) {
   for (let c = 0; c < GRID_COLS; c++) {
     for (let r = 0; r < GRID_ROWS; r++) {
       const cell = grid[c][r];
-      if (!cell || cell.special === 'blackpearl') continue;
+      if (!cell) continue;
+      const centerAlreadySpecial = (cell.special === 'starflower' || cell.special === 'blackpearl');
 
       const nbrs = getNeighbors(c, r);
       const validStars = nbrs.filter(n =>
@@ -128,6 +130,7 @@ export function detectBlackPearls(grid) {
       results.push({
         center: { col: c, row: r },
         ring: validStars.map(n => ({ col: n.col, row: n.row })),
+        centerAlreadySpecial,
       });
     }
   }

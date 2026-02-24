@@ -805,15 +805,20 @@ async function animateYRotation(clockwise, originX, originY) {
 async function animateBlackPearlCreation(bpResults) {
   const { originX, originY } = getOrigin();
 
+  let queuedBlackpearls = 0;
   for (const bp of bpResults) {
     const centerPx = hexToPixel(bp.center.col, bp.center.row, originX, originY);
 
-    // Mutate center to black pearl now (detection was non-mutating)
-    const centerCell = grid[bp.center.col][bp.center.row];
-    if (centerCell) {
-      centerCell.colorIndex = -2;
-      centerCell.special = 'blackpearl';
-      delete centerCell.bombTimer;
+    if (bp.centerAlreadySpecial) {
+      queuedBlackpearls++;
+    } else {
+      // Mutate center to black pearl now (detection was non-mutating)
+      const centerCell = grid[bp.center.col][bp.center.row];
+      if (centerCell) {
+        centerCell.colorIndex = -2;
+        centerCell.special = 'blackpearl';
+        delete centerCell.bombTimer;
+      }
     }
 
     // Phase 1: Ring implodes — starflower pieces shrink toward center (400ms)
@@ -892,7 +897,7 @@ async function animateBlackPearlCreation(bpResults) {
 
   applyGravity(grid);
   const mode = getActiveGameMode();
-  const filled = fillEmpty(grid, undefined, undefined, undefined, mode.hasBombs && bombQueued);
+  const filled = fillEmpty(grid, undefined, undefined, undefined, mode.hasBombs && bombQueued, { starflowers: 0, blackpearls: queuedBlackpearls });
   if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
 }
 
@@ -904,7 +909,7 @@ async function postRotationCheck() {
 
   // Tick bomb timers and spawn new bombs only in modes that support them
   if (mode.hasBombs) {
-    const bombExpired = tickBombs(grid);
+    tickBombs(grid);
     
     // Animate bomb shake on tick
     const bombCells = [];
@@ -925,10 +930,6 @@ async function postRotationCheck() {
       requestRedraw();
     }
 
-    if (bombExpired && mode.hasGameOver) {
-      handleGameOver(false);
-      return;
-    }
     // Difficulty scaling: dynamically calculate interval based on score
     // Max 15 moves per bomb initially, eventually scaling down to every 4 moves.
     const currentScore = getScore();
@@ -939,56 +940,73 @@ async function postRotationCheck() {
     if (moveCount % dynamicInterval === 0) bombQueued = true;
   }
 
-  const matches = findMatchesForMode(grid, GRID_COLS, GRID_ROWS);
-  if (matches.size > 0) {
-    state = 'cascading';
-    await runCascade(matches);
+  // Centralized Board State Resolution Logic
+  let boardStable = false;
+  let isFirstStep = true;
+
+  while (!boardStable) {
+    boardStable = true;
+
+    const bpResults = detectBlackPearls(grid);
+    if (bpResults.length > 0) {
+      if (!isFirstStep) { advanceChain(); await delay(100); }
+      isFirstStep = false;
+      state = 'cascading';
+      await animateBlackPearlCreation(bpResults);
+      boardStable = false;
+      continue;
+    }
+
+    const sfResults = detectStarflowers(grid);
+    if (sfResults.length > 0) {
+      if (!isFirstStep) { advanceChain(); await delay(100); }
+      isFirstStep = false;
+      state = 'cascading';
+      await animateStarflowerCreation(sfResults);
+      boardStable = false;
+      continue;
+    }
+
+    const matches = findMatchesForMode(grid, GRID_COLS, GRID_ROWS);
+    if (matches.size > 0) {
+      if (!isFirstStep) { advanceChain(); await delay(100); }
+      isFirstStep = false;
+      state = 'cascading';
+      await runCascade(matches);
+      boardStable = false;
+      continue;
+    }
+  }
+
+  if (!isFirstStep) {
+    // Only deselect if a cascade or special formation occurred
     selectedCluster = null;
     flowerCenter = null;
     pearlCenter = null;
     state = 'idle';
-    resetChain();
-    saveGame();
   } else {
-    const sfResults = detectStarflowers(grid);
-    if (sfResults.length > 0) {
-      state = 'cascading';
-      await animateStarflowerCreation(sfResults);
+    // Retain selection if nothing cleared
+    state = 'selected';
+  }
 
-      // After starflowers created, check for black pearls
-      const bpResults = detectBlackPearls(grid);
-      if (bpResults.length > 0) {
-        await animateBlackPearlCreation(bpResults);
-      }
+  resetChain();
+  saveGame();
 
-      // Check if the new arrangement creates matches
-      const postMatches = findMatchesForMode(grid, GRID_COLS, GRID_ROWS);
-      if (postMatches.size > 0) {
-        await runCascade(postMatches);
-        selectedCluster = null;
-        flowerCenter = null;
-        pearlCenter = null;
-        state = 'idle';
-        resetChain();
-        saveGame();
-        return;
+
+  // Final check: did any un-cleared bombs expire?
+  if (mode.hasBombs && mode.hasGameOver) {
+    let exploded = false;
+    for (let c = 0; c < GRID_COLS; c++) {
+      for (let r = 0; r < GRID_ROWS; r++) {
+         if (grid[c][r]?.special === 'bomb' && grid[c][r].bombTimer <= 0) {
+             exploded = true;
+             break;
+         }
       }
-      state = 'selected';
-      saveGame();
-    } else {
-      // No starflowers, but check for black pearls anyway
-      const bpResults = detectBlackPearls(grid);
-      if (bpResults.length > 0) {
-        state = 'cascading';
-        await animateBlackPearlCreation(bpResults);
-        state = 'selected';
-        saveGame();
-        requestRedraw();
-      } else {
-        state = 'selected';
-        saveGame();
-        requestRedraw();
-      }
+    }
+    if (exploded) {
+       handleGameOver(false);
+       return;
     }
   }
 }
@@ -1166,12 +1184,18 @@ async function animateStarflowerCreation(sfResults) {
     spawnCreationParticles(px.x, px.y, 20);
   }
 
+  let queuedStarflowers = 0;
   // Mutate center to be a Starflower
-  for (const center of centers) {
-    if (grid[center.col] && grid[center.col][center.row]) {
-      grid[center.col][center.row].colorIndex = -1;
-      grid[center.col][center.row].special = 'starflower';
-      delete grid[center.col][center.row].bombTimer;
+  for (const sf of sfResults) {
+    if (sf.centerAlreadySpecial) {
+      queuedStarflowers++;
+    } else {
+      const center = sf.center;
+      if (grid[center.col] && grid[center.col][center.row]) {
+        grid[center.col][center.row].colorIndex = -1;
+        grid[center.col][center.row].special = 'starflower';
+        delete grid[center.col][center.row].bombTimer;
+      }
     }
   }
 
@@ -1233,7 +1257,7 @@ async function animateStarflowerCreation(sfResults) {
   applyGravity(grid);
   {
     const mode = getActiveGameMode();
-    const filled = fillEmpty(grid, undefined, undefined, undefined, mode.hasBombs && bombQueued);
+    const filled = fillEmpty(grid, undefined, undefined, undefined, mode.hasBombs && bombQueued, { starflowers: queuedStarflowers, blackpearls: 0 });
     if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
   }
 }
@@ -1450,33 +1474,6 @@ async function runCascade(initialMatches) {
   }
   requestRedraw();
 
-  // ── Starflower detection (after board settles) ─────────────
-  const sfPost = detectStarflowers(grid);
-  if (sfPost.length > 0) {
-    await animateStarflowerCreation(sfPost);
-
-    // After starflowers created, check for black pearls
-    const bpPost = detectBlackPearls(grid);
-    if (bpPost.length > 0) {
-      await animateBlackPearlCreation(bpPost);
-    }
-  } else {
-    // If no new starflowers, existing ones might still have formed a black pearl
-    // (e.g. if the rotation formed a pearl + a match elsewhere)
-    const bpPost = detectBlackPearls(grid);
-    if (bpPost.length > 0) {
-      await animateBlackPearlCreation(bpPost);
-    }
-  }
-
-  advanceChain();
-
-  // ── Check for chain reactions ──────────────────────────────
-  const newMatches = findMatchesForMode(grid, GRID_COLS, GRID_ROWS);
-  if (newMatches.size > 0) {
-    await delay(100);
-    await runCascade(newMatches);
-  }
 }
 
 /**
