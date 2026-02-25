@@ -126,6 +126,8 @@ export function initInput(canvas) {
     const absDy = Math.abs(dy);
 
     if (Math.hypot(dx, dy) >= SWIPE_THRESHOLD_PX) {
+      // Pinwheel: cross product of (finger-pos relative to cluster center) × (swipe direction).
+      // Both vectors in screen pixels. In screen coords (y-down): cross > 0 → CW, cross < 0 → CCW.
       let clockwise;
       if (clusterCenterPx) {
         const rect = canvas.getBoundingClientRect();
@@ -136,12 +138,8 @@ export function initInput(canvas) {
         const ry = touchStartY - centerScreenY;
         const cross = rx * dy - ry * dx;
         clockwise = cross > 0;
-        console.log('[swipe] center=', clusterCenterPx, 'centerScreen=(', centerScreenX.toFixed(0), centerScreenY.toFixed(0), ')',
-          'touchStart=(', touchStartX.toFixed(0), touchStartY.toFixed(0), ')',
-          'r=(', rx.toFixed(0), ry.toFixed(0), ') d=(', dx.toFixed(0), dy.toFixed(0), ') cross=', cross.toFixed(0), clockwise ? 'CW' : 'CCW');
       } else {
         clockwise = dx > 0;
-        console.log('[swipe] no clusterCenter, fallback dx=', dx, clockwise ? 'CW' : 'CCW');
       }
       pendingAction = { type: clockwise ? 'rotateCW' : 'rotateCCW' };
     } else {

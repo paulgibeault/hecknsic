@@ -93,6 +93,24 @@ document.getElementById('btn-cw').addEventListener('click', (e) => {
   triggerAction('rotateCCW');
 });
 
+// Handedness toggle — keeps buttons in the comfortable corner for each player
+const toggleLeft  = document.getElementById('hand-toggle-left');
+const toggleRight = document.getElementById('hand-toggle-right');
+
+function applyHandedness(leftHanded) {
+  controlsEl.classList.toggle('left-handed', leftHanded);
+  toggleLeft.classList.toggle('hidden', leftHanded);   // left pill: shown when NOT left-handed
+  toggleRight.classList.toggle('hidden', !leftHanded); // right pill: shown when left-handed
+  localStorage.setItem('hecknsic_left_handed', leftHanded ? '1' : '0');
+}
+
+// Restore saved preference
+applyHandedness(localStorage.getItem('hecknsic_left_handed') === '1');
+
+toggleLeft.addEventListener('click', (e) => { e.stopPropagation(); applyHandedness(true); });
+toggleRight.addEventListener('click', (e) => { e.stopPropagation(); applyHandedness(false); });
+
+
 // Help Modal bindings
 const nonGameUI = ['btn-help', 'modal-help', 'btn-close-help'];
 document.getElementById('btn-help').addEventListener('click', (e) => {
