@@ -13,7 +13,7 @@ const MATCH_MODES = {
 };
 
 let activeGameModeId = 'arcade';
-let activeMatchModeId = 'line';
+let activeMatchModeId = 'classic';
 
 export function loadActiveMode() {
   const savedGame = localStorage.getItem('hecknsic_active_game_mode');

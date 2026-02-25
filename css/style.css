@@ -13,6 +13,7 @@ html, body {
   background: radial-gradient(circle at 50% 0%, #1a1b35 0%, #111218 50%, #0a0b0e 100%);
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   color: #D0D0D8;
+  touch-action: manipulation; /* disable double-tap zoom */
 }
 
 /* ─── Canvas ─────────────────────────────────────────────────── */
@@ -65,20 +66,7 @@ html, body {
   transition: all 0.1s ease;
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   -webkit-tap-highlight-color: transparent;
-}
-
-.btn-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-
-.key-hint {
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: rgba(255, 255, 255, 0.8);
-  margin-top: 2px;
+  touch-action: manipulation; /* disable double-tap zoom */
 }
 
 .control-btn:active {

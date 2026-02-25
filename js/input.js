@@ -79,17 +79,21 @@ export function initInput(canvas) {
     requestRedraw();
   });
 
-  // Touch
+  // Touch — tap to select, horizontal swipe to rotate
+  const SWIPE_THRESHOLD_PX = 40; // screen pixels (not scaled)
+  let touchStartX = 0, touchStartY = 0;
+
   canvas.addEventListener('touchstart', e => {
     e.preventDefault();
     const touch = e.touches[0];
+    touchStartX = touch.clientX;
+    touchStartY = touch.clientY;
     const rect = canvas.getBoundingClientRect();
     const s = getBoardScale();
     mouseX = (touch.clientX - rect.left) / s;
     mouseY = (touch.clientY - rect.top) / s;
     lastClickPos = { x: mouseX, y: mouseY };
     updateHover();
-    pendingAction = { type: 'select' };
     requestRedraw();
   }, { passive: false });
 
@@ -101,6 +105,24 @@ export function initInput(canvas) {
     mouseX = (touch.clientX - rect.left) / s;
     mouseY = (touch.clientY - rect.top) / s;
     updateHover();
+    requestRedraw();
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', e => {
+    e.preventDefault();
+    const touch = e.changedTouches[0];
+    const dx = touch.clientX - touchStartX;
+    const dy = touch.clientY - touchStartY;
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+
+    if (absDx >= SWIPE_THRESHOLD_PX && absDx > absDy) {
+      // Clear horizontal swipe — rotate, don't select
+      pendingAction = { type: dx > 0 ? 'rotateCW' : 'rotateCCW' };
+    } else {
+      // Short movement / vertical — treat as tap → select
+      pendingAction = { type: 'select' };
+    }
     requestRedraw();
   }, { passive: false });
 
