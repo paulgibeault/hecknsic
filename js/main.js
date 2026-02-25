@@ -20,10 +20,12 @@ import {
   applyGravity, fillEmpty,
 } from './board.js';
 import {
-  initRenderer, resize, drawFrame, getOrigin,
+  initRenderer, resize, drawFrame, getOrigin, getBoardScale,
   setCellOverride, clearCellOverride, clearAllOverrides,
   addFloatingPiece, removeFloatingPiece,
   spawnCreationParticles, spawnScorePopup,
+  spawnColorNukeParticles, spawnExplosionParticles,
+  spawnRingShockwave, flashScreenOverlay,
   getLogoBounds, requestRedraw, clearDirty, getIsDirty, hasActiveRendererAnimations
 } from './renderer.js';
 import {
@@ -1364,7 +1366,7 @@ async function runCascade(initialMatches) {
     for (const n of nbrs) {
       if (n.col >= 0 && n.col < GRID_COLS && n.row >= 0 && n.row < GRID_ROWS) {
         // Explode neighbors (unless they are indestuctible?)
-        if (grid[n.col][n.row] && grid[n.col][n.row].special !== 'blackpearl') { // Assume pearls are hard
+        if (grid[n.col][n.row] && grid[n.col][n.row].special !== 'blackpearl' && grid[n.col][n.row].special !== 'starflower') { // Specials are indestructible
              pendingMatches.add(`${n.col},${n.row}`);
         }
       }
@@ -1372,6 +1374,102 @@ async function runCascade(initialMatches) {
   }
 
   const matches = pendingMatches;
+
+  // ── Star match special effects (play BEFORE the flash-and-clear) ─
+  const { originX, originY } = getOrigin();
+
+  if (colorNukeColors.size > 0 && multiplierClusters.length > 0) {
+    // ── Scenario 1: Color Nuke (same-color star cluster) ──────────
+    // Use the first nuke color to pick a representative tile on the board
+    const nukeColor = colorNukeColors.values().next().value;
+    // Find the cluster that triggered the nuke
+    const nukeCluster = multiplierClusters.find(cluster => {
+      const arr = Array.from(cluster);
+      const colors = new Set(arr.map(k => { const [c,r] = k.split(',').map(Number); return grid[c][r]?.colorIndex; }));
+      return colors.size === 1 && colors.has(nukeColor);
+    });
+    if (nukeCluster) {
+      const arr = Array.from(nukeCluster);
+      let sumX = 0, sumY = 0;
+      for (const k of arr) {
+        const [c,r] = k.split(',').map(Number);
+        const px = hexToPixel(c, r, originX, originY);
+        sumX += px.x; sumY += px.y;
+      }
+      const cx = sumX / arr.length, cy = sumY / arr.length;
+      // Color-tinted burst + screen tint + shockwave
+      spawnColorNukeParticles(cx, cy, nukeColor, 50);
+      // Pick RGB from color index for the overlay and shockwave
+      const colorRGBs = [[224,48,48],[232,128,32],[32,128,224],[48,168,64],[128,64,192],[32,176,176]];
+      const [rr,gg,bb] = colorRGBs[nukeColor] || [255,255,255];
+      flashScreenOverlay(rr, gg, bb, 0.18, 35);
+      spawnRingShockwave(cx, cy, 200, rr, gg, bb);
+      spawnRingShockwave(cx, cy, 140, rr, gg, bb);
+      await new Promise(res => setTimeout(res, 250));
+    }
+  } else if (explosionSources.length > 0) {
+    // ── Scenario 2: Explosion (mixed-color star cluster) ──────────
+    let sumX = 0, sumY = 0;
+    for (const k of explosionSources) {
+      const [c,r] = k.split(',').map(Number);
+      const px = hexToPixel(c, r, originX, originY);
+      sumX += px.x; sumY += px.y;
+    }
+    const cx = sumX / explosionSources.length, cy = sumY / explosionSources.length;
+
+    spawnExplosionParticles(cx, cy, 70);
+    flashScreenOverlay(255, 200, 80, 0.20, 30);
+    spawnRingShockwave(cx, cy, 260, 255, 200, 80);
+    spawnRingShockwave(cx, cy, 180, 255, 240, 160);
+
+    // Board-wide ripple shake radiating outward from the explosion center
+    await tween(280, t => {
+      for (let c = 0; c < GRID_COLS; c++) {
+        for (let r = 0; r < GRID_ROWS; r++) {
+          if (!grid[c][r]) continue;
+          const px = hexToPixel(c, r, originX, originY);
+          const dist = Math.hypot(px.x - cx, px.y - cy);
+          const delay = dist / 400; // 0..~1
+          const localT = Math.max(0, Math.min(1, (t - delay) / (1 - delay)));
+          const shake = Math.sin(localT * Math.PI * 3) * 5 * (1 - t);
+          setCellOverride(c, r, { offsetX: shake, offsetY: shake * 0.5 });
+        }
+      }
+      requestRedraw();
+    }, linear).promise;
+    clearAllOverrides();
+  }
+
+  // ── Scenario 3: Bomb + Star nuke — detect and add extra effect ─
+  // Check if any bomb triggered a color nuke (colorPresence already computed)
+  {
+    let bombNukeColor = -1;
+    for (const color in colorPresence) {
+      if (colorPresence[color].hasBomb && colorPresence[color].hasMultiplier) {
+        bombNukeColor = Number(color);
+        break;
+      }
+    }
+    if (bombNukeColor >= 0) {
+      // Find the bomb cell
+      let bombPx = null;
+      for (const key of matches) {
+        const [c,r] = key.split(',').map(Number);
+        if (grid[c][r]?.special === 'bomb' && grid[c][r]?.colorIndex === bombNukeColor) {
+          bombPx = hexToPixel(c, r, originX, originY);
+          break;
+        }
+      }
+      if (bombPx) {
+        // Red danger flash + red-orange burst centered on the bomb
+        flashScreenOverlay(255, 30, 30, 0.28, 40);
+        spawnExplosionParticles(bombPx.x, bombPx.y, 50);
+        spawnRingShockwave(bombPx.x, bombPx.y, 220, 255, 60, 30);
+        spawnRingShockwave(bombPx.x, bombPx.y, 130, 255, 120, 60);
+        await new Promise(res => setTimeout(res, 200));
+      }
+    }
+  }
 
   // ── Flash matched cells ────────────────────────────────────
   await tween(MATCH_FLASH_MS, t => {

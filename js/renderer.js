@@ -29,7 +29,9 @@ export function hasActiveRendererAnimations() {
   return creationParticles.length > 0 ||
          scorePopups.length > 0 ||
          floatingPieces.length > 0 ||
-         comboFadeStart > 0;
+         comboFadeStart > 0 ||
+         shockwaves.length > 0 ||
+         screenOverlay !== null;
 }
 
 // Per-cell animation overrides: "col,row" → { scale?, alpha?, offsetX?, offsetY?, hidden? }
@@ -40,6 +42,12 @@ let floatingPieces = [];  // { x, y, colorIndex, scale, alpha }
 
 // Creation celebration particles
 let creationParticles = [];  // { x, y, vx, vy, life, maxLife, size, hue }
+
+// Ring shockwaves: expanding circles that fade out
+let shockwaves = [];  // { x, y, r, maxR, life, maxLife, r, g, b }
+
+// Full-screen color wash overlay
+let screenOverlay = null;  // { r, g, b, alpha, life, maxLife } or null
 
 // ─── Combo overlay state ─────────────────────────────────────────
 let comboDispCount   = 0;   // peak combo count seen this cascade
@@ -175,6 +183,82 @@ export function clearCreationParticles() {
   creationParticles = [];
 }
 
+// ─── Special Match Effect APIs ──────────────────────────────────
+
+/**
+ * Burst of colored particles matching a tile color — used for Color Nuke.
+ * @param {number} cx - center x in logical pixels
+ * @param {number} cy - center y in logical pixels
+ * @param {number} colorIndex - PIECE_COLORS index
+ * @param {number} count
+ */
+export function spawnColorNukeParticles(cx, cy, colorIndex, count = 40) {
+  const color = PIECE_COLORS[colorIndex];
+  // Convert hex color to approximate hue for particle system
+  const hueMap = [0, 30, 210, 130, 280]; // red, orange, blue, green, purple
+  const hue = colorIndex >= 0 && colorIndex < hueMap.length ? hueMap[colorIndex] : 0;
+  for (let i = 0; i < count; i++) {
+    const angle = (Math.PI * 2 / count) * i + (Math.random() - 0.5) * 0.6;
+    const speed = 2.5 + Math.random() * 4;
+    creationParticles.push({
+      x: cx, y: cy,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 1.0,
+      maxLife: 55 + Math.random() * 25,
+      size: 3 + Math.random() * 4,
+      hue,
+    });
+  }
+}
+
+/**
+ * Hot white-to-orange burst — used for mixed-color Explosion.
+ */
+export function spawnExplosionParticles(cx, cy, count = 60) {
+  for (let i = 0; i < count; i++) {
+    const angle = (Math.PI * 2 / count) * i + (Math.random() - 0.5) * 0.5;
+    const speed = 4 + Math.random() * 6;
+    const hue = 20 + Math.random() * 40; // orange-yellow fire range
+    creationParticles.push({
+      x: cx, y: cy,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 1.0,
+      maxLife: 35 + Math.random() * 20,
+      size: 3 + Math.random() * 5,
+      hue,
+    });
+  }
+}
+
+/**
+ * Spawn a ring shockwave that expands and fades.
+ * @param {number} cx - center x
+ * @param {number} cy - center y
+ * @param {number} maxRadius - how far the ring expands
+ * @param {number} rr - red 0-255
+ * @param {number} gg - green 0-255
+ * @param {number} bb - blue 0-255
+ */
+export function spawnRingShockwave(cx, cy, maxRadius, rr, gg, bb) {
+  shockwaves.push({ x: cx, y: cy, r: 0, maxR: maxRadius, life: 1.0, maxLife: 40, rr, gg, bb });
+  isDirty = true;
+}
+
+/**
+ * Flash the entire screen with a color overlay that fades out.
+ * @param {number} rr - red 0-255
+ * @param {number} gg - green 0-255
+ * @param {number} bb - blue 0-255
+ * @param {number} peakAlpha - peak alpha (0-1)
+ * @param {number} maxLife - lifetime in draw frames (approx 60fps)
+ */
+export function flashScreenOverlay(rr, gg, bb, peakAlpha = 0.25, maxLife = 30) {
+  screenOverlay = { rr, gg, bb, alpha: peakAlpha, life: 1.0, maxLife };
+  isDirty = true;
+}
+
 // ─── Main draw ──────────────────────────────────────────────────
 
 export function drawFrame(grid, hoverCluster, selectedCluster) {
@@ -283,6 +367,12 @@ export function drawFrame(grid, hoverCluster, selectedCluster) {
 
   // Creation celebration particles
   updateAndDrawParticles();
+
+  // Ring shockwaves
+  updateAndDrawShockwaves();
+
+  // Screen overlay flash
+  updateAndDrawScreenOverlay();
 
   // Floating score numbers
   updateAndDrawScorePopups();
@@ -715,6 +805,48 @@ function updateAndDrawParticles() {
 
     ctx.restore();
   }
+}
+
+function updateAndDrawShockwaves() {
+  if (shockwaves.length === 0) return;
+  isDirty = true;
+  for (let i = shockwaves.length - 1; i >= 0; i--) {
+    const s = shockwaves[i];
+    s.life -= 1 / s.maxLife;
+    if (s.life <= 0) { shockwaves.splice(i, 1); continue; }
+    s.r = s.maxR * (1 - s.life);  // expand as life drains
+    const alpha = s.life * 0.8;
+    const lineW = 3 * s.life + 1;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(${s.rr},${s.gg},${s.bb},${alpha})`;
+    ctx.lineWidth = lineW;
+    ctx.stroke();
+    // Inner glow ring
+    if (s.r > 5) {
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r * 0.75, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(${s.rr},${s.gg},${s.bb},${alpha * 0.35})`;
+      ctx.lineWidth = lineW * 0.5;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+function updateAndDrawScreenOverlay() {
+  if (!screenOverlay) return;
+  isDirty = true;
+  screenOverlay.life -= 1 / screenOverlay.maxLife;
+  if (screenOverlay.life <= 0) { screenOverlay = null; return; }
+  const alpha = screenOverlay.alpha * screenOverlay.life;
+  const { rr, gg, bb } = screenOverlay;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = `rgb(${rr},${gg},${bb})`;
+  ctx.fillRect(0, 0, canvasW / boardScale, canvasH / boardScale);
+  ctx.restore();
 }
 
 function drawHexOutline(cx, cy, size, strokeColor, lineWidth) {
