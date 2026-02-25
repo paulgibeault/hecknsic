@@ -36,8 +36,8 @@ import {
 import { hexToPixel, getNeighbors, pixelToHex, findClusterAtPixel } from './hex-math.js';
 import {
   initInput, getHoverCluster, consumeAction, getLastClickPos, getMousePos, triggerAction,
-  setKeyBindings, clearPendingAction,
-} from './input.js';
+  setKeyBindings, clearPendingAction, setClusterCenterPx,
+} from './input.js?v=3';
 import { tween, updateTweens, easeOutCubic, easeOutBounce, hasActiveTweens, linear } from './tween.js';
 import {
   resetScore, awardMatch, advanceChain, resetChain,
@@ -418,6 +418,7 @@ function trySelect() {
     selectedCluster = null;
     flowerCenter = null;
     pearlCenter = null;
+    setClusterCenterPx(null, null);
     return;
   }
 
@@ -457,6 +458,9 @@ function trySelect() {
         flowerCenter = null;
         selectedCluster = [{ col: hex.col, row: hex.row }, ...yHexes];
         state = 'selected';
+        // Pearl center is the center hex pixel
+        const cp = hexToPixel(hex.col, hex.row, originX, originY);
+        setClusterCenterPx(cp.x, cp.y);
         return;
       }
     }
@@ -475,6 +479,9 @@ function trySelect() {
       pearlCenter = null;
       selectedCluster = [{ col: hex.col, row: hex.row }, ...nbrs];
       state = 'selected';
+      // Flower center pixel
+      const cp = hexToPixel(hex.col, hex.row, originX, originY);
+      setClusterCenterPx(cp.x, cp.y);
       return;
     }
   }
@@ -490,10 +497,17 @@ function trySelect() {
     pearlCenter = null;
     selectedCluster = cluster;
     state = 'selected';
+    // Compute centroid of the 3 cluster hexes
+    const px = cluster.map(h => hexToPixel(h.col, h.row, originX, originY));
+    setClusterCenterPx(
+      (px[0].x + px[1].x + px[2].x) / 3,
+      (px[0].y + px[1].y + px[2].y) / 3
+    );
   } else {
     selectedCluster = null;
     flowerCenter = null;
     pearlCenter = null;
+    setClusterCenterPx(null, null);
   }
 }
 

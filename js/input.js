@@ -11,10 +11,19 @@ let mouseX = 0, mouseY = 0;
 let lastClickPos = null;     // {x, y} of last click for flower detection
 let hoverCluster = null;
 let pendingAction = null;  // { type: 'select'|'rotateCW'|'rotateCCW' }
+let clusterCenterPx = null; // {x, y} pixel center of selected cluster (canvas-scaled coords)
 
 export function getHoverCluster() { return hoverCluster; }
 export function getLastClickPos() { return lastClickPos; }
 export function getMousePos() { return { x: mouseX, y: mouseY }; }
+
+/**
+ * Called by main.js whenever a cluster is selected/changed.
+ * x, y are in canvas-scaled coordinates (same space as lastClickPos).
+ */
+export function setClusterCenterPx(x, y) {
+  clusterCenterPx = (x != null && y != null) ? { x, y } : null;
+}
 
 /**
  * Consume and return the next pending action, or null.
@@ -116,11 +125,27 @@ export function initInput(canvas) {
     const absDx = Math.abs(dx);
     const absDy = Math.abs(dy);
 
-    if (absDx >= SWIPE_THRESHOLD_PX && absDx > absDy) {
-      // Clear horizontal swipe — rotate, don't select
-      pendingAction = { type: dx > 0 ? 'rotateCW' : 'rotateCCW' };
+    if (Math.hypot(dx, dy) >= SWIPE_THRESHOLD_PX) {
+      let clockwise;
+      if (clusterCenterPx) {
+        const rect = canvas.getBoundingClientRect();
+        const s = getBoardScale();
+        const centerScreenX = clusterCenterPx.x * s + rect.left;
+        const centerScreenY = clusterCenterPx.y * s + rect.top;
+        const rx = touchStartX - centerScreenX;
+        const ry = touchStartY - centerScreenY;
+        const cross = rx * dy - ry * dx;
+        clockwise = cross > 0;
+        console.log('[swipe] center=', clusterCenterPx, 'centerScreen=(', centerScreenX.toFixed(0), centerScreenY.toFixed(0), ')',
+          'touchStart=(', touchStartX.toFixed(0), touchStartY.toFixed(0), ')',
+          'r=(', rx.toFixed(0), ry.toFixed(0), ') d=(', dx.toFixed(0), dy.toFixed(0), ') cross=', cross.toFixed(0), clockwise ? 'CW' : 'CCW');
+      } else {
+        clockwise = dx > 0;
+        console.log('[swipe] no clusterCenter, fallback dx=', dx, clockwise ? 'CW' : 'CCW');
+      }
+      pendingAction = { type: clockwise ? 'rotateCW' : 'rotateCCW' };
     } else {
-      // Short movement / vertical — treat as tap → select
+      // Short movement — treat as tap → select
       pendingAction = { type: 'select' };
     }
     requestRedraw();
