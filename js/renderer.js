@@ -14,6 +14,7 @@ import {
 import { hexToPixel, hexCorners } from './hex-math.js';
 import { getActiveGameMode, getActiveMatchMode } from './modes.js';
 import { getDisplayScore, getComboCount, getChainLevel } from './score.js';
+import { getHighScores } from './storage.js';
 // ─── Module state ───────────────────────────────────────────────
 let ctx;
 let canvasW, canvasH;   // physical CSS pixel dimensions

@@ -137,6 +137,33 @@ export function detectBlackPearls(grid) {
   return results;
 }
 
+// ─── Grand Poobah detection ─────────────────────────────────────
+
+export function detectGrandPoobahs(grid) {
+  const results = [];
+  for (let c = 0; c < GRID_COLS; c++) {
+    for (let r = 0; r < GRID_ROWS; r++) {
+      const cell = grid[c][r];
+      if (!cell) continue;
+      const centerAlreadySpecial = (cell.special === 'starflower' || cell.special === 'blackpearl' || cell.special === 'grandpoobah');
+
+      const nbrs = getNeighbors(c, r);
+      const validPearls = nbrs.filter(n =>
+        inBounds(n) && grid[n.col][n.row]?.special === 'blackpearl'
+      );
+      if (validPearls.length !== 6) continue;
+
+      // All 6 neighbors are black pearls
+      results.push({
+        center: { col: c, row: r },
+        ring: validPearls.map(n => ({ col: n.col, row: n.row })),
+        centerAlreadySpecial,
+      });
+    }
+  }
+  return results;
+}
+
 /**
  * Post-match starflower detection at cleared positions.
  * Does NOT clear ring tiles — returns data for animated clearing.
