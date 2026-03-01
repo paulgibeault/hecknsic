@@ -46,7 +46,7 @@ import {
 } from './score.js';
 import {
   detectStarflowers, detectStarflowersAtCleared,
-  detectBlackPearls, detectMultiplierClusters,
+  detectBlackPearls, detectMultiplierClusters, detectGrandPoobahs,
   tickBombs, countBombs,
 } from './specials.js';
 import {
@@ -247,6 +247,20 @@ document.getElementById('btn-cancel-end').addEventListener('click', (e) => {
   isPaused = false;
   requestRedraw();
   // allow board interactions again
+});
+
+// Game Win Modal bindings
+document.getElementById('btn-continue-gamewin').addEventListener('click', (e) => {
+  e.stopPropagation();
+  document.getElementById('modal-gamewin').classList.add('hidden');
+  state = 'idle';
+  isPaused = false;
+  requestRedraw();
+});
+
+document.getElementById('btn-newgame-gamewin').addEventListener('click', (e) => {
+  e.stopPropagation();
+  resetGame();
 });
 
 document.getElementById('btn-confirm-end').addEventListener('click', (e) => {
@@ -935,6 +949,103 @@ async function animateBlackPearlCreation(bpResults) {
   if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
 }
 
+async function animateGrandPoobahCreation(gpResults) {
+  const { originX, originY } = getOrigin();
+
+  for (const gp of gpResults) {
+    const centerPx = hexToPixel(gp.center.col, gp.center.row, originX, originY);
+
+    if (!gp.centerAlreadySpecial) {
+      const centerCell = grid[gp.center.col][gp.center.row];
+      if (centerCell) {
+        centerCell.colorIndex = -3;
+        centerCell.special = 'grandpoobah';
+        delete centerCell.bombTimer;
+      }
+    }
+
+    // Phase 1: Ring implodes
+    await tween(400, t => {
+      for (const pos of gp.ring) {
+        if (grid[pos.col]?.[pos.row]) {
+          const px = hexToPixel(pos.col, pos.row, originX, originY);
+          const dx = (centerPx.x - px.x) * t * 0.4;
+          const dy = (centerPx.y - px.y) * t * 0.4;
+          setCellOverride(pos.col, pos.row, {
+            scale: 1 - t * 0.6,
+            alpha: 1 - t * 0.7,
+            offsetX: dx,
+            offsetY: dy,
+          });
+        }
+      }
+    }, easeOutCubic).promise;
+
+    for (const pos of gp.ring) grid[pos.col][pos.row] = null;
+    clearAllOverrides();
+
+    // Phase 2: Majestic particle burst
+    spawnCreationParticles(centerPx.x, centerPx.y, 40);
+
+    // Phase 3: Pulse
+    await tween(800, t => {
+      let scale;
+      if (t < 0.2) {
+        scale = 1 + 0.8 * (t / 0.2);
+      } else {
+        const settleT = (t - 0.2) / 0.8;
+        scale = 1.8 - 0.8 * settleT;
+      }
+      setCellOverride(gp.center.col, gp.center.row, { scale });
+    }, easeOutCubic).promise;
+
+    clearAllOverrides();
+  }
+
+  // Gravity and refill
+  const fallMap = computeFallDistances();
+  if (fallMap.length > 0) {
+    const maxDist = Math.max(...fallMap.map(f => f.dist));
+    const fallDuration = GRAVITY_MS * maxDist;
+
+    const fallers = fallMap.map(f => {
+      const startPx = hexToPixel(f.col, f.fromRow, originX, originY);
+      const endPx = hexToPixel(f.col, f.toRow, originX, originY);
+      setCellOverride(f.col, f.fromRow, { hidden: true });
+      return {
+        fp: addFloatingPiece({
+          x: startPx.x, y: startPx.y,
+          colorIndex: f.colorIndex,
+          special: f.special,
+          bombTimer: f.bombTimer,
+          scale: 1, alpha: 1, shadow: false,
+        }),
+        startY: startPx.y,
+        endY: endPx.y,
+      };
+    });
+
+    await tween(fallDuration, t => {
+      for (const f of fallers) f.fp.y = f.startY + (f.endY - f.startY) * t;
+    }, easeOutBounce).promise;
+
+    for (const f of fallers) removeFloatingPiece(f.fp);
+    clearAllOverrides();
+  }
+
+  applyGravity(grid);
+  const mode = getActiveGameMode();
+  const filled = fillEmpty(grid, undefined, undefined, undefined, mode.hasBombs && bombQueued, { starflowers: 0, blackpearls: 0 });
+  if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
+
+  handleGameWin();
+}
+
+function handleGameWin() {
+  state = 'gameover';
+  document.getElementById('modal-gamewin').classList.remove('hidden');
+}
+
 /** Shared post-rotation logic: tick bombs, cascade or detect specials */
 async function postRotationCheck() {
   moveCount++;
@@ -980,6 +1091,16 @@ async function postRotationCheck() {
 
   while (!boardStable) {
     boardStable = true;
+
+    const gpResults = detectGrandPoobahs(grid);
+    if (gpResults.length > 0) {
+      if (!isFirstStep) { advanceChain(); await delay(100); }
+      isFirstStep = false;
+      state = 'cascading';
+      await animateGrandPoobahCreation(gpResults);
+      boardStable = false;
+      continue;
+    }
 
     const bpResults = detectBlackPearls(grid);
     if (bpResults.length > 0) {

@@ -7,7 +7,7 @@
  */
 
 import {
-  GRID_COLS, GRID_ROWS, HEX_SIZE, PIECE_COLORS, STARFLOWER_COLOR, BLACK_PEARL_COLOR,
+  GRID_COLS, GRID_ROWS, HEX_SIZE, PIECE_COLORS, STARFLOWER_COLOR, BLACK_PEARL_COLOR, GRAND_POOBAH_COLOR,
   FRAME_COLOR, BOARD_BG_COLOR, TEXT_COLOR,
   HIGHLIGHT_COLOR, CLUSTER_HIGHLIGHT,
 } from './constants.js';
@@ -397,6 +397,11 @@ function drawHex(cx, cy, size, colorIndex, alpha = 1) {
     drawBlackPearlHex(cx, cy, size, alpha);
     return;
   }
+  // Grand Poobah pieces get the golden rendering
+  if (colorIndex === -3) {
+    drawGrandPoobahHex(cx, cy, size, alpha);
+    return;
+  }
 
   const color = PIECE_COLORS[colorIndex];
   if (!color) return;
@@ -670,6 +675,72 @@ function drawBlackPearlHex(cx, cy, size, alpha = 1) {
   ctx.beginPath();
   ctx.arc(cx, cy, orbRadius, 0, Math.PI * 2);
   ctx.fill();
+
+  ctx.restore();
+}
+
+// ─── Grand Poobah hex ───────────────────────────────────────────
+
+function drawGrandPoobahHex(cx, cy, size, alpha = 1) {
+  const color = GRAND_POOBAH_COLOR;
+  const corners = hexCorners(cx, cy, size);
+  const now = Date.now();
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
+  // Clip to hex shape
+  ctx.beginPath();
+  ctx.moveTo(corners[0].x, corners[0].y);
+  for (let i = 1; i < 6; i++) ctx.lineTo(corners[i].x, corners[i].y);
+  ctx.closePath();
+  ctx.save();
+  ctx.clip();
+
+  // Base fill: radiant golden gradient
+  const baseGrad = ctx.createRadialGradient(
+    cx, cy, size * 0.1,
+    cx, cy, size * 1.1
+  );
+  baseGrad.addColorStop(0, color.light);
+  baseGrad.addColorStop(0.5, color.base);
+  baseGrad.addColorStop(1, color.dark);
+  ctx.fillStyle = baseGrad;
+  ctx.fillRect(cx - size, cy - size, size * 2, size * 2);
+
+  // Crown / Sunburst pattern
+  for (let i = 0; i < 12; i++) {
+    const angle = (Math.PI * 2 / 12) * i + (now / 2000);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.cos(angle - 0.1) * size * 1.5, cy + Math.sin(angle - 0.1) * size * 1.5);
+    ctx.lineTo(cx + Math.cos(angle + 0.1) * size * 1.5, cy + Math.sin(angle + 0.1) * size * 1.5);
+    ctx.closePath();
+    ctx.fillStyle = `rgba(255, 255, 255, ${0.1 + (i % 2) * 0.1})`;
+    ctx.fill();
+  }
+
+  // Intense center glow
+  const glowPulse = 0.8 + 0.2 * Math.sin(now / 300);
+  const glowGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 0.6 * glowPulse);
+  glowGrad.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+  glowGrad.addColorStop(0.5, 'rgba(255, 215, 0, 0.5)');
+  glowGrad.addColorStop(1, 'rgba(255, 215, 0, 0)');
+  ctx.fillStyle = glowGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, size * 0.6 * glowPulse, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore(); // un-clip
+
+  // Golden majestic border
+  ctx.beginPath();
+  ctx.moveTo(corners[0].x, corners[0].y);
+  for (let i = 1; i < 6; i++) ctx.lineTo(corners[i].x, corners[i].y);
+  ctx.closePath();
+  ctx.strokeStyle = '#FFF8DC'; // cornsilk highlight
+  ctx.lineWidth = 3;
+  ctx.stroke();
 
   ctx.restore();
 }

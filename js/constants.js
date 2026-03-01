@@ -33,6 +33,11 @@ export const BLACK_PEARL_COLOR = {
   name: 'blackpearl', base: '#1A1520', light: '#3A2840', dark: '#0A0810',
 };
 
+// Grand Poobah (colorIndex = -3, wildcard matching)
+export const GRAND_POOBAH_COLOR = {
+  name: 'grandpoobah', base: '#FFD700', light: '#FFFFE0', dark: '#DAA520',
+};
+
 // ─── UI ─────────────────────────────────────────────────────────
 export const FRAME_COLOR     = '#2A2D35';
 export const BOARD_BG_COLOR  = '#1A1D25';

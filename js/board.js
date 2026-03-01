@@ -175,6 +175,7 @@ export function findMatches(grid, cols = GRID_COLS, rows = GRID_ROWS) {
       if (grid[c][r] === null) continue;
       if (grid[c][r].special === 'starflower') continue; // starflowers can't match
       if (grid[c][r].special === 'blackpearl') continue; // black pearls can't match in rows
+      if (grid[c][r].special === 'grandpoobah') continue; // grandpoobahs don't start matches
       const color = grid[c][r].colorIndex;
 
       for (const dir of axialDirections) {
@@ -189,13 +190,16 @@ export function findMatches(grid, cols = GRID_COLS, rows = GRID_ROWS) {
           const nc = nq;
           const nrow = nr + (nq - (nq & 1)) / 2;
           if (nc < 0 || nc >= cols || nrow < 0 || nrow >= rows) break;
-          if (grid[nc][nrow] === null || grid[nc][nrow].colorIndex !== color) break;
+          const nCell = grid[nc][nrow];
+          if (nCell === null || (nCell.colorIndex !== color && nCell.special !== 'grandpoobah')) break;
           run.push({ col: nc, row: nrow });
         }
 
         if (run.length >= 3) {
           for (const cell of run) {
-            allMatched.add(`${cell.col},${cell.row}`);
+            if (grid[cell.col][cell.row].special !== 'grandpoobah') {
+              allMatched.add(`${cell.col},${cell.row}`);
+            }
           }
         }
       }
@@ -224,6 +228,7 @@ export function findTriangleMatches(grid, cols = GRID_COLS, rows = GRID_ROWS) {
       if (grid[c][r] === null) continue;
       if (grid[c][r].special === 'starflower') continue;
       if (grid[c][r].special === 'blackpearl') continue;
+      if (grid[c][r].special === 'grandpoobah') continue;
       const color = grid[c][r].colorIndex;
 
       const nbrs = getNeighbors(c, r);
@@ -241,11 +246,14 @@ export function findTriangleMatches(grid, cols = GRID_COLS, rows = GRID_ROWS) {
         if (!cellB || !cellD) continue;
         if (cellB.special === 'starflower' || cellB.special === 'blackpearl') continue;
         if (cellD.special === 'starflower' || cellD.special === 'blackpearl') continue;
-        if (cellB.colorIndex !== color || cellD.colorIndex !== color) continue;
+
+        const bMatches = cellB.colorIndex === color || cellB.special === 'grandpoobah';
+        const dMatches = cellD.colorIndex === color || cellD.special === 'grandpoobah';
+        if (!bMatches || !dMatches) continue;
 
         allMatched.add(`${c},${r}`);
-        allMatched.add(`${B.col},${B.row}`);
-        allMatched.add(`${D.col},${D.row}`);
+        if (cellB.special !== 'grandpoobah') allMatched.add(`${B.col},${B.row}`);
+        if (cellD.special !== 'grandpoobah') allMatched.add(`${D.col},${D.row}`);
       }
     }
   }
