@@ -80,7 +80,7 @@ export function detectStarflowers(grid) {
     for (let r = 0; r < GRID_ROWS; r++) {
       const cell = grid[c][r];
       if (!cell) continue;
-      const centerAlreadySpecial = (cell.special === 'starflower' || cell.special === 'blackpearl');
+      const centerAlreadySpecial = (cell.special === 'starflower' || cell.special === 'blackpearl' || cell.special === 'grandpoobah');
 
       const nbrs = getNeighbors(c, r);
       const valid = nbrs.filter(n =>
@@ -88,9 +88,16 @@ export function detectStarflowers(grid) {
       );
       if (valid.length !== 6) continue;
 
-      const ringColor = grid[valid[0].col][valid[0].row].colorIndex;
+      let ringColor = -1;
+      for (const n of valid) {
+        if (grid[n.col][n.row].special !== 'grandpoobah') {
+          ringColor = grid[n.col][n.row].colorIndex;
+          break;
+        }
+      }
+
       if (ringColor >= 0 && (centerAlreadySpecial || ringColor !== cell.colorIndex) &&
-          valid.every(n => grid[n.col][n.row].colorIndex === ringColor)) {
+          valid.every(n => grid[n.col][n.row].colorIndex === ringColor || grid[n.col][n.row].special === 'grandpoobah')) {
         // calculate center but do not mutate grid yet
         results.push({
           center: { col: c, row: r },
@@ -118,11 +125,11 @@ export function detectBlackPearls(grid) {
     for (let r = 0; r < GRID_ROWS; r++) {
       const cell = grid[c][r];
       if (!cell) continue;
-      const centerAlreadySpecial = (cell.special === 'starflower' || cell.special === 'blackpearl');
+      const centerAlreadySpecial = (cell.special === 'starflower' || cell.special === 'blackpearl' || cell.special === 'grandpoobah');
 
       const nbrs = getNeighbors(c, r);
       const validStars = nbrs.filter(n =>
-        inBounds(n) && grid[n.col][n.row]?.special === 'starflower'
+        inBounds(n) && (grid[n.col][n.row]?.special === 'starflower' || grid[n.col][n.row]?.special === 'grandpoobah')
       );
       if (validStars.length !== 6) continue;
 
@@ -149,7 +156,7 @@ export function detectGrandPoobahs(grid) {
 
       const nbrs = getNeighbors(c, r);
       const validPearls = nbrs.filter(n =>
-        inBounds(n) && grid[n.col][n.row]?.special === 'blackpearl'
+        inBounds(n) && (grid[n.col][n.row]?.special === 'blackpearl' || grid[n.col][n.row]?.special === 'grandpoobah')
       );
       if (validPearls.length !== 6) continue;
 
@@ -185,8 +192,15 @@ export function detectStarflowersAtCleared(grid, clearedKeys) {
     );
     if (valid.length !== 6) continue;
 
-    const color = grid[valid[0].col][valid[0].row].colorIndex;
-    if (color >= 0 && valid.every(n => grid[n.col][n.row].colorIndex === color)) {
+    let color = -1;
+    for (const n of valid) {
+      if (grid[n.col][n.row].special !== 'grandpoobah') {
+        color = grid[n.col][n.row].colorIndex;
+        break;
+      }
+    }
+    
+    if (color >= 0 && valid.every(n => grid[n.col][n.row].colorIndex === color || grid[n.col][n.row].special === 'grandpoobah')) {
       // Create the starflower in the cleared position
       grid[c][r] = { colorIndex: -1, special: 'starflower' };
       results.push({
