@@ -62,7 +62,7 @@ let comboTierShowTime = 0;  // timestamp when current tier first appeared (for p
 let scorePopups = [];  // { x, y, vy, text, life, maxLife, fontSize, color }
 
 // Label tier thresholds (by combo count)
-const COMBO_THRESHOLDS = [2,  8,  12,  16,  20,  24];
+const COMBO_THRESHOLDS = [2,  5,   7,  10,  12,  15];
 const COMBO_LABELS     = ['COMBO', 'NICE!', 'SWEET!', 'AMAZING!', 'SICK!', 'HECKN SIC!'];
 const COMBO_COLORS     = ['#FFD740', '#FF9800', '#FF5722', '#E040FB', '#7C4DFF', '#4FC3F7'];
 const COMBO_FADE_MS    = 1200;
