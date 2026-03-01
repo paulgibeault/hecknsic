@@ -888,7 +888,9 @@ async function animateBlackPearlCreation(bpResults) {
 
     // Clear the absorbed starflowers
     for (const pos of bp.ring) {
-      grid[pos.col][pos.row] = null;
+      if (grid[pos.col][pos.row] && grid[pos.col][pos.row].special !== 'grandpoobah') {
+        grid[pos.col][pos.row] = null;
+      }
     }
     clearAllOverrides();
 
@@ -981,7 +983,11 @@ async function animateGrandPoobahCreation(gpResults) {
       }
     }, easeOutCubic).promise;
 
-    for (const pos of gp.ring) grid[pos.col][pos.row] = null;
+    for (const pos of gp.ring) {
+      if (grid[pos.col][pos.row] && grid[pos.col][pos.row].special !== 'grandpoobah') {
+        grid[pos.col][pos.row] = null;
+      }
+    }
     clearAllOverrides();
 
     // Phase 2: Majestic particle burst
@@ -1326,8 +1332,10 @@ async function animateStarflowerCreation(sfResults) {
   // Clear ring tiles
   console.log('Clearing ring tiles. Count:', allRing.length);
   for (const pos of allRing) {
-    console.log(`Clearing ${pos.col},${pos.row}. Was:`, grid[pos.col][pos.row]);
-    grid[pos.col][pos.row] = null;
+    if (grid[pos.col][pos.row] && grid[pos.col][pos.row].special !== 'grandpoobah') {
+      console.log(`Clearing ${pos.col},${pos.row}. Was:`, grid[pos.col][pos.row]);
+      grid[pos.col][pos.row] = null;
+    }
   }
   clearAllOverrides();
 
