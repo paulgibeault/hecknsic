@@ -1528,7 +1528,10 @@ async function runCascade(initialMatches) {
     for (const n of nbrs) {
       if (n.col >= 0 && n.col < GRID_COLS && n.row >= 0 && n.row < GRID_ROWS) {
         // Explode neighbors (unless they are indestuctible?)
-        if (grid[n.col][n.row] && grid[n.col][n.row].special !== 'blackpearl' && grid[n.col][n.row].special !== 'starflower') { // Specials are indestructible
+        if (grid[n.col][n.row] &&
+            grid[n.col][n.row].special !== 'blackpearl' &&
+            grid[n.col][n.row].special !== 'starflower' &&
+            grid[n.col][n.row].special !== 'grandpoobah') { // Trophy tiles are indestructible
              pendingMatches.add(`${n.col},${n.row}`);
         }
       }
