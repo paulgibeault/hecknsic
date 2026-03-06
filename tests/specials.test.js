@@ -10,7 +10,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { GRID_COLS, GRID_ROWS } from '../js/constants.js';
-import { detectBlackPearls, detectStarflowers } from '../js/specials.js';
+import { detectBlackPearls, detectStarflowers, detectGrandPoobahs } from '../js/specials.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -48,6 +48,51 @@ const RING = [
 ];
 
 function makeStarflower() { return { colorIndex: -1, special: 'starflower' }; }
+function makeBlackPearl() { return { colorIndex: -2, special: 'blackpearl' }; }
+
+// ─── detectGrandPoobahs ─────────────────────────────────────────
+
+test('detectGrandPoobahs: returns empty when no formation exists', () => {
+  const grid = fullGrid(0);
+  const results = detectGrandPoobahs(grid);
+  assert.equal(results.length, 0);
+});
+
+test('detectGrandPoobahs: detects a 6-black-pearl ring around a regular center', () => {
+  const grid = fullGrid(0);
+  for (const pos of RING) grid[pos.col][pos.row] = makeBlackPearl();
+
+  const results = detectGrandPoobahs(grid);
+  assert.equal(results.length, 1);
+  assert.deepEqual(results[0].center, CENTER);
+  assert.equal(results[0].ring.length, 6);
+});
+
+test('detectGrandPoobahs: does NOT mutate the center cell (non-mutating)', () => {
+  const grid = fullGrid(0);
+  for (const pos of RING) grid[pos.col][pos.row] = makeBlackPearl();
+
+  const originalColorIndex = grid[CENTER.col][CENTER.row].colorIndex;
+  const originalSpecial    = grid[CENTER.col][CENTER.row].special;
+
+  detectGrandPoobahs(grid);
+
+  assert.equal(grid[CENTER.col][CENTER.row].colorIndex, originalColorIndex,
+    'center colorIndex should be unchanged after detection');
+  assert.equal(grid[CENTER.col][CENTER.row].special, originalSpecial,
+    'center special should be unchanged after detection');
+});
+
+test('detectGrandPoobahs: does not detect when fewer than 6 black pearl neighbors', () => {
+  const grid = fullGrid(0);
+  // Only 5 of 6 neighbors are black pearls
+  for (let i = 0; i < 5; i++) grid[RING[i].col][RING[i].row] = makeBlackPearl();
+
+  const results = detectGrandPoobahs(grid);
+  assert.equal(results.length, 0);
+});
+
+
 
 // ─── detectBlackPearls ──────────────────────────────────────────
 
@@ -107,13 +152,14 @@ test('detectBlackPearls: detects formation when center is itself a starflower (f
   assert.deepEqual(results[0].center, CENTER);
 });
 
-test('detectBlackPearls: skips center that is already a black pearl', () => {
+test('detectBlackPearls: detects formation when center is already a black pearl (centerAlreadySpecial flag)', () => {
   const grid = fullGrid(0);
   grid[CENTER.col][CENTER.row] = { colorIndex: -2, special: 'blackpearl' };
   for (const pos of RING) grid[pos.col][pos.row] = makeStarflower();
 
   const results = detectBlackPearls(grid);
-  assert.equal(results.length, 0, 'already-formed black pearl should not be re-detected');
+  assert.equal(results.length, 1, 'should still detect the formation so the animation can queue a replacement pearl');
+  assert.equal(results[0].centerAlreadySpecial, true, 'centerAlreadySpecial should be true');
 });
 
 test('detectBlackPearls: does not detect when fewer than 6 starflower neighbors', () => {

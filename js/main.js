@@ -629,10 +629,11 @@ async function animateRotation(clockwise) {
     const matches = findMatchesForMode(grid, GRID_COLS, GRID_ROWS);
     const sfResults = detectStarflowers(grid);
     const bpResults = detectBlackPearls(grid);
+    const gpResults = detectGrandPoobahs(grid);
 
     // If we found anything significant, proceed to post-rotation logic (cascade/etc)
     // and STOP rotating.
-    if (matches.size > 0 || sfResults.length > 0 || bpResults.length > 0) {
+    if (matches.size > 0 || sfResults.length > 0 || bpResults.length > 0 || gpResults.length > 0) {
       await postRotationCheck();
       return; 
     }
