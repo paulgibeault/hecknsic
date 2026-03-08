@@ -608,7 +608,7 @@ async function animateRotation(clockwise) {
   // Starflower ring = 6 steps for full rotation
   // Cluster / Black Pearl (Y) = 3 steps for full rotation
   let maxSteps = 3;
-  if (flowerCenter) maxSteps = 1;
+  if (flowerCenter || pearlCenter) maxSteps = 1;
 
   for (let step = 0; step < maxSteps; step++) {
     // 1. Animate one step
