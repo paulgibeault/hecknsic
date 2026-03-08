@@ -299,7 +299,7 @@ export function applyGravity(grid, cols = GRID_COLS, rows = GRID_ROWS) {
  * @param {boolean} spawnBomb - If true, one of the new pieces will be a bomb.
  * @param {object} spawnOptions - Options for spawning specific specials { starflowers: number, blackpearls: number }
  */
-export function fillEmpty(grid, cols = GRID_COLS, rows = GRID_ROWS, numColors = PIECE_COLORS.length, spawnBomb = false, spawnOptions = { starflowers: 0, blackpearls: 0 }) {
+export function fillEmpty(grid, cols = GRID_COLS, rows = GRID_ROWS, numColors = PIECE_COLORS.length, spawnBomb = false, spawnOptions = { starflowers: 0, blackpearls: 0, grandpoobahs: 0 }) {
   const filled = [];
   for (let c = 0; c < cols; c++) {
     for (let r = 0; r < rows; r++) {
@@ -307,7 +307,11 @@ export function fillEmpty(grid, cols = GRID_COLS, rows = GRID_ROWS, numColors = 
         let special = Math.random() < 0.05 ? 'multiplier' : null;
         let colorIndex = Math.floor(Math.random() * numColors);
 
-        if (spawnOptions.blackpearls > 0) {
+        if (spawnOptions.grandpoobahs > 0) {
+          special = 'grandpoobah';
+          colorIndex = -3;
+          spawnOptions.grandpoobahs--;
+        } else if (spawnOptions.blackpearls > 0) {
           special = 'blackpearl';
           colorIndex = -2;
           spawnOptions.blackpearls--;

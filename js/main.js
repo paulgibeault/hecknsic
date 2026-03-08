@@ -954,11 +954,14 @@ async function animateBlackPearlCreation(bpResults) {
 
 async function animateGrandPoobahCreation(gpResults) {
   const { originX, originY } = getOrigin();
+  let queuedGrandPoobahs = 0;
 
   for (const gp of gpResults) {
     const centerPx = hexToPixel(gp.center.col, gp.center.row, originX, originY);
 
-    if (!gp.centerAlreadySpecial) {
+    if (gp.centerAlreadySpecial) {
+      queuedGrandPoobahs++;
+    } else {
       const centerCell = grid[gp.center.col][gp.center.row];
       if (centerCell) {
         centerCell.colorIndex = -3;
@@ -1042,7 +1045,7 @@ async function animateGrandPoobahCreation(gpResults) {
 
   applyGravity(grid);
   const mode = getActiveGameMode();
-  const filled = fillEmpty(grid, undefined, undefined, undefined, mode.hasBombs && bombQueued, { starflowers: 0, blackpearls: 0 });
+  const filled = fillEmpty(grid, undefined, undefined, undefined, mode.hasBombs && bombQueued, { starflowers: 0, blackpearls: 0, grandpoobahs: queuedGrandPoobahs });
   if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
 
   handleGameWin();
