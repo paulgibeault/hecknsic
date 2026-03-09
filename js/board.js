@@ -196,9 +196,18 @@ export function findMatches(grid, cols = GRID_COLS, rows = GRID_ROWS) {
         }
 
         if (run.length >= 3) {
+          // Rule: a valid match must contain at least 2 real color tiles
+          let realColorCount = 0;
           for (const cell of run) {
             if (grid[cell.col][cell.row].special !== 'grandpoobah') {
-              allMatched.add(`${cell.col},${cell.row}`);
+              realColorCount++;
+            }
+          }
+          if (realColorCount >= 2) {
+            for (const cell of run) {
+              if (grid[cell.col][cell.row].special !== 'grandpoobah') {
+                allMatched.add(`${cell.col},${cell.row}`);
+              }
             }
           }
         }
@@ -250,6 +259,11 @@ export function findTriangleMatches(grid, cols = GRID_COLS, rows = GRID_ROWS) {
         const bMatches = cellB.colorIndex === color || cellB.special === 'grandpoobah';
         const dMatches = cellD.colorIndex === color || cellD.special === 'grandpoobah';
         if (!bMatches || !dMatches) continue;
+
+        // Rule: a valid match must contain at least 2 real color tiles
+        // Since the center tile (c,r) is always a real color tile (grandpoobahs don't initiate matches),
+        // we just need to ensure at least one of B or D is also a real color tile.
+        if (cellB.special === 'grandpoobah' && cellD.special === 'grandpoobah') continue;
 
         allMatched.add(`${c},${r}`);
         if (cellB.special !== 'grandpoobah') allMatched.add(`${B.col},${B.row}`);
