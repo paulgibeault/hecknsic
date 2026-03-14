@@ -167,11 +167,32 @@
     <div class="modal-content text-center">
       <h2 style="color: #FFD700; border-color: #FFD700;">VICTORY!</h2>
       <p class="gamewin-message">You created the Grand Poobah Perl!</p>
-      
+
       <div style="display: flex; gap: 12px; justify-content: center; flex-direction: column;">
         <button id="btn-continue-gamewin" class="start-btn" style="background: #333;">Continue Playing</button>
         <button id="btn-newgame-gamewin" class="start-btn" style="background: #FFD700; color: #000;">Start New Game</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Over-Achiever Modal -->
+  <div id="modal-over-achiever" class="modal hidden">
+    <div class="modal-content text-center">
+      <h2 style="color: #FFD700; border-color: #FFD700;">🏆 OVER-ACHIEVER 🏆</h2>
+      <p style="color: #ccd6f6; margin-bottom: 16px;">You completed a full ring of Grand Poobah Perls!</p>
+
+      <div class="score-summary">
+        <div class="score-row">
+          <span>Final Score</span>
+          <span id="go-oa-score" class="val">0</span>
+        </div>
+        <div class="score-row">
+          <span>Best Combo</span>
+          <span id="go-oa-combo" class="val">0</span>
+        </div>
+      </div>
+
+      <button id="btn-newgame-oa" class="start-btn" style="background: #FFD700; color: #000;">New Game</button>
     </div>
   </div>
 

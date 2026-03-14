@@ -213,6 +213,35 @@ export function detectStarflowersAtCleared(grid, clearedKeys) {
   return results;
 }
 
+// ─── Grand Poobah Ring detection ────────────────────────────────
+
+/**
+ * Board-scan: if any hex has all 6 in-bounds neighbors as Grand Poobahs
+ * → the "Over-Achiever" condition is met.
+ * @returns {Array<{center, ring}>}
+ */
+export function detectGrandPoobahRing(grid) {
+  const results = [];
+  for (let c = 0; c < GRID_COLS; c++) {
+    for (let r = 0; r < GRID_ROWS; r++) {
+      const cell = grid[c][r];
+      if (!cell) continue;
+
+      const nbrs = getNeighbors(c, r);
+      const validGPs = nbrs.filter(n =>
+        inBounds(n) && grid[n.col][n.row]?.special === 'grandpoobah'
+      );
+      if (validGPs.length !== 6) continue;
+
+      results.push({
+        center: { col: c, row: r },
+        ring: validGPs.map(n => ({ col: n.col, row: n.row })),
+      });
+    }
+  }
+  return results;
+}
+
 // ─── Bomb logic ─────────────────────────────────────────────────
 
 /**

@@ -47,7 +47,7 @@ import {
 import {
   detectStarflowers, detectStarflowersAtCleared,
   detectBlackPearls, detectMultiplierClusters, detectGrandPoobahs,
-  tickBombs, countBombs,
+  detectGrandPoobahRing, tickBombs, countBombs,
 } from './specials.js';
 import {
   saveGameState, loadGameState, clearGameState,
@@ -263,6 +263,13 @@ document.getElementById('btn-newgame-gamewin').addEventListener('click', (e) => 
   resetGame();
 });
 
+// Over-Achiever Modal binding
+document.getElementById('btn-newgame-oa').addEventListener('click', (e) => {
+  e.stopPropagation();
+  document.getElementById('modal-over-achiever').classList.add('hidden');
+  resetGame();
+});
+
 document.getElementById('btn-confirm-end').addEventListener('click', (e) => {
   e.stopPropagation();
   endSessionModal.classList.add('hidden');
@@ -289,10 +296,11 @@ function showHighScores() {
 
   list.innerHTML = scores.map((s, i) => {
     const date = new Date(s.date).toLocaleDateString();
+    const trophy = s.achievement ? ' 🏆' : '';
     return `
       <li>
         <span class="rank">#${i + 1}</span>
-        <span class="score">${s.score.toLocaleString()}</span>
+        <span class="score">${s.score.toLocaleString()}${trophy}</span>
         <span class="date">${date}</span>
       </li>
     `;
@@ -1056,6 +1064,62 @@ function handleGameWin() {
   document.getElementById('modal-gamewin').classList.remove('hidden');
 }
 
+async function handleOverAchiever() {
+  state = 'gameover';
+  const combinedId = getCombinedModeId();
+  clearGameState(combinedId);
+  addHighScore(combinedId, getScore(), 'over-achiever');
+
+  document.getElementById('go-oa-score').textContent = getScore().toLocaleString();
+  document.getElementById('go-oa-combo').textContent = `x${getComboCount()}`;
+  document.getElementById('modal-over-achiever').classList.remove('hidden');
+
+  // Board explosion (reuse game-over explosion aesthetic)
+  const { originX, originY } = getOrigin();
+  const floaters = [];
+
+  for (let c = 0; c < GRID_COLS; c++) {
+    for (let r = 0; r < GRID_ROWS; r++) {
+      if (grid[c][r]) {
+        const px = hexToPixel(c, r, originX, originY);
+        const dx = px.x - (originX + (GRID_COLS * 30));
+        const dy = px.y - (originY + (GRID_ROWS * 30));
+        const angle = Math.atan2(dy, dx);
+        const speed = 10 + Math.random() * 20;
+
+        const fp = addFloatingPiece({
+          x: px.x, y: px.y,
+          colorIndex: grid[c][r].colorIndex,
+          special: grid[c][r].special,
+          scale: 1, alpha: 1, shadow: false
+        });
+
+        floaters.push({
+          fp,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          rot: (Math.random() - 0.5) * 0.5
+        });
+
+        grid[c][r] = null;
+      }
+    }
+  }
+
+  await tween(1500, t => {
+    for (const item of floaters) {
+      item.fp.x += item.vx;
+      item.fp.y += item.vy;
+      item.fp.vy += 0.5;
+      item.fp.alpha = 1 - t;
+    }
+  }, easeOutCubic).promise;
+
+  for (const item of floaters) {
+    removeFloatingPiece(item.fp);
+  }
+}
+
 /** Shared post-rotation logic: tick bombs, cascade or detect specials */
 async function postRotationCheck() {
   moveCount++;
@@ -1101,6 +1165,13 @@ async function postRotationCheck() {
 
   while (!boardStable) {
     boardStable = true;
+
+    // Check for Grand Poobah Ring (Over-Achiever) before anything else
+    const gpRing = detectGrandPoobahRing(grid);
+    if (gpRing.length > 0) {
+      await handleOverAchiever();
+      return;
+    }
 
     const gpResults = detectGrandPoobahs(grid);
     if (gpResults.length > 0) {

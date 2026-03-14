@@ -89,10 +89,13 @@ export function loadSettings() {
  * Add a new score to the high score list for the given mode.
  * @param {string} modeId
  * @param {number} score
+ * @param {string} [achievement] - optional achievement id (e.g. 'over-achiever')
  */
-export function addHighScore(modeId, score) {
+export function addHighScore(modeId, score, achievement) {
   const scores = getHighScores(modeId);
-  scores.push({ score, date: Date.now() });
+  const entry = { score, date: Date.now() };
+  if (achievement) entry.achievement = achievement;
+  scores.push(entry);
   scores.sort((a, b) => b.score - a.score);
   const top10 = scores.slice(0, 10);
   try {
