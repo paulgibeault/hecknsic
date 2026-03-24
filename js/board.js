@@ -346,8 +346,25 @@ export function fillEmpty(grid, cols = GRID_COLS, rows = GRID_ROWS, numColors = 
 
   if (spawnBomb && filled.length > 0) {
     const pick = filled[Math.floor(Math.random() * filled.length)];
-    grid[pick.col][pick.row].special = 'bomb';
-    grid[pick.col][pick.row].bombTimer = BOMB_INITIAL_TIMER;
+    const cell = grid[pick.col][pick.row];
+
+    // If the chosen cell was a queued special (grandpoobah, blackpearl, starflower),
+    // re-queue it so it spawns on the next refill and give the bomb a valid color.
+    if (cell.special === 'grandpoobah') {
+      spawnOptions.grandpoobahs++;
+    } else if (cell.special === 'blackpearl') {
+      spawnOptions.blackpearls++;
+    } else if (cell.special === 'starflower') {
+      spawnOptions.starflowers++;
+    }
+
+    cell.special = 'bomb';
+    cell.bombTimer = BOMB_INITIAL_TIMER;
+
+    // Ensure the bomb has a valid color so it can be matched.
+    if (cell.colorIndex < 0 || cell.colorIndex >= numColors) {
+      cell.colorIndex = Math.floor(Math.random() * numColors);
+    }
   }
 
   return filled;

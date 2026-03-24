@@ -40,7 +40,24 @@ export function saveGameState(modeId, state) {
 export function loadGameState(modeId) {
   try {
     const raw = localStorage.getItem(`hecknsic_state_${modeId}`);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const state = JSON.parse(raw);
+
+    // Patch: fix bombs that have an invalid colorIndex (e.g. negative from a
+    // displaced special piece).  Assign them a random valid color so they can
+    // be matched.
+    if (state && state.grid) {
+      for (const col of state.grid) {
+        if (!col) continue;
+        for (const cell of col) {
+          if (cell && cell.special === 'bomb' && (cell.colorIndex < 0 || cell.colorIndex >= 5)) {
+            cell.colorIndex = Math.floor(Math.random() * 5);
+          }
+        }
+      }
+    }
+
+    return state;
   } catch (e) {
     console.error('Failed to load game state:', e);
     return null;
