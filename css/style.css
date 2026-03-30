@@ -13,6 +13,7 @@ html, body {
   background: radial-gradient(circle at 50% 0%, #1a1b35 0%, #111218 50%, #0a0b0e 100%);
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   color: #D0D0D8;
+  touch-action: manipulation; /* disable double-tap zoom */
 }
 
 /* ─── Canvas ─────────────────────────────────────────────────── */
@@ -32,15 +33,19 @@ html, body {
 /* ─── Controls ───────────────────────────────────────────────── */
 .controls {
   position: absolute;
-  bottom: 20px;
-  left: 0;
-  width: 100%;
+  bottom: 24px;
+  right: 24px; /* default: right-handed */
   display: flex;
-  justify-content: space-between;
-  padding: 0 40px;
-  pointer-events: none; /* Let clicks pass through container */
+  flex-direction: row;
+  gap: 12px;
+  pointer-events: none;
   z-index: 100;
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition: opacity 0.2s ease, transform 0.2s ease, right 0.3s ease, left 0.3s ease;
+}
+
+.controls.left-handed {
+  right: auto;
+  left: 24px;
 }
 
 .controls.hidden {
@@ -50,7 +55,7 @@ html, body {
 }
 
 .control-btn {
-  pointer-events: auto; /* Re-enable clicks on buttons */
+  pointer-events: auto;
   width: 80px;
   height: 80px;
   border-radius: 50%;
@@ -65,20 +70,7 @@ html, body {
   transition: all 0.1s ease;
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   -webkit-tap-highlight-color: transparent;
-}
-
-.btn-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-
-.key-hint {
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: rgba(255, 255, 255, 0.8);
-  margin-top: 2px;
+  touch-action: manipulation;
 }
 
 .control-btn:active {
@@ -91,10 +83,48 @@ html, body {
   filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
 }
 
+/* ─── Handedness toggle pill ─────────────────────────────────── */
+.hand-toggle {
+  position: absolute;
+  bottom: 50px;
+  width: 18px;
+  height: 56px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 100;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background 0.15s ease, color 0.15s ease, opacity 0.2s ease;
+  user-select: none;
+}
+
+.hand-toggle:active {
+  background: rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.hand-toggle.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* right-hand mode: toggle pill sits on the left edge */
+#hand-toggle-left  { left: 6px; }
+/* left-hand mode: toggle pill sits on the right edge */
+#hand-toggle-right { right: 6px; }
+
 /* ─── Desktop Optimization ───────────────────────────────────── */
 @media (pointer: fine) and (min-width: 1024px) {
-  /* Hide the on-screen spin controls since keyboard Q/E is preferred */
-  .controls {
+  .controls, .hand-toggle {
     display: none !important;
   }
 }
+

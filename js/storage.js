@@ -40,7 +40,24 @@ export function saveGameState(modeId, state) {
 export function loadGameState(modeId) {
   try {
     const raw = localStorage.getItem(`hecknsic_state_${modeId}`);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const state = JSON.parse(raw);
+
+    // Patch: fix bombs that have an invalid colorIndex (e.g. negative from a
+    // displaced special piece).  Assign them a random valid color so they can
+    // be matched.
+    if (state && state.grid) {
+      for (const col of state.grid) {
+        if (!col) continue;
+        for (const cell of col) {
+          if (cell && cell.special === 'bomb' && (cell.colorIndex < 0 || cell.colorIndex >= 5)) {
+            cell.colorIndex = Math.floor(Math.random() * 5);
+          }
+        }
+      }
+    }
+
+    return state;
   } catch (e) {
     console.error('Failed to load game state:', e);
     return null;
@@ -89,10 +106,13 @@ export function loadSettings() {
  * Add a new score to the high score list for the given mode.
  * @param {string} modeId
  * @param {number} score
+ * @param {string} [achievement] - optional achievement id (e.g. 'over-achiever')
  */
-export function addHighScore(modeId, score) {
+export function addHighScore(modeId, score, achievement) {
   const scores = getHighScores(modeId);
-  scores.push({ score, date: Date.now() });
+  const entry = { score, date: Date.now() };
+  if (achievement) entry.achievement = achievement;
+  scores.push(entry);
   scores.sort((a, b) => b.score - a.score);
   const top10 = scores.slice(0, 10);
   try {

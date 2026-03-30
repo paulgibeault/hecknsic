@@ -80,7 +80,7 @@ export function detectStarflowers(grid) {
     for (let r = 0; r < GRID_ROWS; r++) {
       const cell = grid[c][r];
       if (!cell) continue;
-      const centerAlreadySpecial = (cell.special === 'starflower' || cell.special === 'blackpearl');
+      const centerAlreadySpecial = (cell.special === 'starflower' || cell.special === 'blackpearl' || cell.special === 'grandpoobah');
 
       const nbrs = getNeighbors(c, r);
       const valid = nbrs.filter(n =>
@@ -88,9 +88,16 @@ export function detectStarflowers(grid) {
       );
       if (valid.length !== 6) continue;
 
-      const ringColor = grid[valid[0].col][valid[0].row].colorIndex;
+      let ringColor = -1;
+      for (const n of valid) {
+        if (grid[n.col][n.row].special !== 'grandpoobah') {
+          ringColor = grid[n.col][n.row].colorIndex;
+          break;
+        }
+      }
+
       if (ringColor >= 0 && (centerAlreadySpecial || ringColor !== cell.colorIndex) &&
-          valid.every(n => grid[n.col][n.row].colorIndex === ringColor)) {
+          valid.every(n => grid[n.col][n.row].colorIndex === ringColor || grid[n.col][n.row].special === 'grandpoobah')) {
         // calculate center but do not mutate grid yet
         results.push({
           center: { col: c, row: r },
@@ -120,11 +127,11 @@ export function detectBlackPearls(grid) {
       if (!cell) continue;
       // Skip centers that are already black pearls — no re-detection
       if (cell.special === 'blackpearl') continue;
-      const centerAlreadySpecial = (cell.special === 'starflower');
+      const centerAlreadySpecial = (cell.special === 'starflower' || cell.special === 'grandpoobah');
 
       const nbrs = getNeighbors(c, r);
       const validStars = nbrs.filter(n =>
-        inBounds(n) && grid[n.col][n.row]?.special === 'starflower'
+        inBounds(n) && (grid[n.col][n.row]?.special === 'starflower' || grid[n.col][n.row]?.special === 'grandpoobah')
       );
       if (validStars.length !== 6) continue;
 
@@ -132,6 +139,33 @@ export function detectBlackPearls(grid) {
       results.push({
         center: { col: c, row: r },
         ring: validStars.map(n => ({ col: n.col, row: n.row })),
+        centerAlreadySpecial,
+      });
+    }
+  }
+  return results;
+}
+
+// ─── Grand Poobah detection ─────────────────────────────────────
+
+export function detectGrandPoobahs(grid) {
+  const results = [];
+  for (let c = 0; c < GRID_COLS; c++) {
+    for (let r = 0; r < GRID_ROWS; r++) {
+      const cell = grid[c][r];
+      if (!cell) continue;
+      const centerAlreadySpecial = (cell.special === 'starflower' || cell.special === 'blackpearl' || cell.special === 'grandpoobah');
+
+      const nbrs = getNeighbors(c, r);
+      const validPearls = nbrs.filter(n =>
+        inBounds(n) && (grid[n.col][n.row]?.special === 'blackpearl' || grid[n.col][n.row]?.special === 'grandpoobah')
+      );
+      if (validPearls.length !== 6) continue;
+
+      // All 6 neighbors are black pearls
+      results.push({
+        center: { col: c, row: r },
+        ring: validPearls.map(n => ({ col: n.col, row: n.row })),
         centerAlreadySpecial,
       });
     }
@@ -160,14 +194,50 @@ export function detectStarflowersAtCleared(grid, clearedKeys) {
     );
     if (valid.length !== 6) continue;
 
-    const color = grid[valid[0].col][valid[0].row].colorIndex;
-    if (color >= 0 && valid.every(n => grid[n.col][n.row].colorIndex === color)) {
+    let color = -1;
+    for (const n of valid) {
+      if (grid[n.col][n.row].special !== 'grandpoobah') {
+        color = grid[n.col][n.row].colorIndex;
+        break;
+      }
+    }
+    
+    if (color >= 0 && valid.every(n => grid[n.col][n.row].colorIndex === color || grid[n.col][n.row].special === 'grandpoobah')) {
       // Create the starflower in the cleared position
       grid[c][r] = { colorIndex: -1, special: 'starflower' };
       results.push({
         center: { col: c, row: r },
         ring: valid.map(n => ({ col: n.col, row: n.row })),
         ringColor: color,
+      });
+    }
+  }
+  return results;
+}
+
+// ─── Grand Poobah Ring detection ────────────────────────────────
+
+/**
+ * Board-scan: if any hex has all 6 in-bounds neighbors as Grand Poobahs
+ * → the "Over-Achiever" condition is met.
+ * @returns {Array<{center, ring}>}
+ */
+export function detectGrandPoobahRing(grid) {
+  const results = [];
+  for (let c = 0; c < GRID_COLS; c++) {
+    for (let r = 0; r < GRID_ROWS; r++) {
+      const cell = grid[c][r];
+      if (!cell) continue;
+
+      const nbrs = getNeighbors(c, r);
+      const validGPs = nbrs.filter(n =>
+        inBounds(n) && grid[n.col][n.row]?.special === 'grandpoobah'
+      );
+      if (validGPs.length !== 6) continue;
+
+      results.push({
+        center: { col: c, row: r },
+        ring: validGPs.map(n => ({ col: n.col, row: n.row })),
       });
     }
   }

@@ -175,6 +175,7 @@ export function findMatches(grid, cols = GRID_COLS, rows = GRID_ROWS) {
       if (grid[c][r] === null) continue;
       if (grid[c][r].special === 'starflower') continue; // starflowers can't match
       if (grid[c][r].special === 'blackpearl') continue; // black pearls can't match in rows
+      if (grid[c][r].special === 'grandpoobah') continue; // grandpoobahs don't start matches
       const color = grid[c][r].colorIndex;
 
       for (const dir of axialDirections) {
@@ -189,13 +190,25 @@ export function findMatches(grid, cols = GRID_COLS, rows = GRID_ROWS) {
           const nc = nq;
           const nrow = nr + (nq - (nq & 1)) / 2;
           if (nc < 0 || nc >= cols || nrow < 0 || nrow >= rows) break;
-          if (grid[nc][nrow] === null || grid[nc][nrow].colorIndex !== color) break;
+          const nCell = grid[nc][nrow];
+          if (nCell === null || (nCell.colorIndex !== color && nCell.special !== 'grandpoobah')) break;
           run.push({ col: nc, row: nrow });
         }
 
         if (run.length >= 3) {
+          // Rule: a valid match must contain at least 2 real color tiles
+          let realColorCount = 0;
           for (const cell of run) {
-            allMatched.add(`${cell.col},${cell.row}`);
+            if (grid[cell.col][cell.row].special !== 'grandpoobah') {
+              realColorCount++;
+            }
+          }
+          if (realColorCount >= 2) {
+            for (const cell of run) {
+              if (grid[cell.col][cell.row].special !== 'grandpoobah') {
+                allMatched.add(`${cell.col},${cell.row}`);
+              }
+            }
           }
         }
       }
@@ -224,6 +237,7 @@ export function findTriangleMatches(grid, cols = GRID_COLS, rows = GRID_ROWS) {
       if (grid[c][r] === null) continue;
       if (grid[c][r].special === 'starflower') continue;
       if (grid[c][r].special === 'blackpearl') continue;
+      if (grid[c][r].special === 'grandpoobah') continue;
       const color = grid[c][r].colorIndex;
 
       const nbrs = getNeighbors(c, r);
@@ -241,11 +255,19 @@ export function findTriangleMatches(grid, cols = GRID_COLS, rows = GRID_ROWS) {
         if (!cellB || !cellD) continue;
         if (cellB.special === 'starflower' || cellB.special === 'blackpearl') continue;
         if (cellD.special === 'starflower' || cellD.special === 'blackpearl') continue;
-        if (cellB.colorIndex !== color || cellD.colorIndex !== color) continue;
+
+        const bMatches = cellB.colorIndex === color || cellB.special === 'grandpoobah';
+        const dMatches = cellD.colorIndex === color || cellD.special === 'grandpoobah';
+        if (!bMatches || !dMatches) continue;
+
+        // Rule: a valid match must contain at least 2 real color tiles
+        // Since the center tile (c,r) is always a real color tile (grandpoobahs don't initiate matches),
+        // we just need to ensure at least one of B or D is also a real color tile.
+        if (cellB.special === 'grandpoobah' && cellD.special === 'grandpoobah') continue;
 
         allMatched.add(`${c},${r}`);
-        allMatched.add(`${B.col},${B.row}`);
-        allMatched.add(`${D.col},${D.row}`);
+        if (cellB.special !== 'grandpoobah') allMatched.add(`${B.col},${B.row}`);
+        if (cellD.special !== 'grandpoobah') allMatched.add(`${D.col},${D.row}`);
       }
     }
   }
@@ -291,7 +313,7 @@ export function applyGravity(grid, cols = GRID_COLS, rows = GRID_ROWS) {
  * @param {boolean} spawnBomb - If true, one of the new pieces will be a bomb.
  * @param {object} spawnOptions - Options for spawning specific specials { starflowers: number, blackpearls: number }
  */
-export function fillEmpty(grid, cols = GRID_COLS, rows = GRID_ROWS, numColors = PIECE_COLORS.length, spawnBomb = false, spawnOptions = { starflowers: 0, blackpearls: 0 }) {
+export function fillEmpty(grid, cols = GRID_COLS, rows = GRID_ROWS, numColors = PIECE_COLORS.length, spawnBomb = false, spawnOptions = { starflowers: 0, blackpearls: 0, grandpoobahs: 0 }) {
   const filled = [];
   for (let c = 0; c < cols; c++) {
     for (let r = 0; r < rows; r++) {
@@ -299,7 +321,11 @@ export function fillEmpty(grid, cols = GRID_COLS, rows = GRID_ROWS, numColors = 
         let special = Math.random() < 0.05 ? 'multiplier' : null;
         let colorIndex = Math.floor(Math.random() * numColors);
 
-        if (spawnOptions.blackpearls > 0) {
+        if (spawnOptions.grandpoobahs > 0) {
+          special = 'grandpoobah';
+          colorIndex = -3;
+          spawnOptions.grandpoobahs--;
+        } else if (spawnOptions.blackpearls > 0) {
           special = 'blackpearl';
           colorIndex = -2;
           spawnOptions.blackpearls--;
@@ -320,8 +346,25 @@ export function fillEmpty(grid, cols = GRID_COLS, rows = GRID_ROWS, numColors = 
 
   if (spawnBomb && filled.length > 0) {
     const pick = filled[Math.floor(Math.random() * filled.length)];
-    grid[pick.col][pick.row].special = 'bomb';
-    grid[pick.col][pick.row].bombTimer = BOMB_INITIAL_TIMER;
+    const cell = grid[pick.col][pick.row];
+
+    // If the chosen cell was a queued special (grandpoobah, blackpearl, starflower),
+    // re-queue it so it spawns on the next refill and give the bomb a valid color.
+    if (cell.special === 'grandpoobah') {
+      spawnOptions.grandpoobahs++;
+    } else if (cell.special === 'blackpearl') {
+      spawnOptions.blackpearls++;
+    } else if (cell.special === 'starflower') {
+      spawnOptions.starflowers++;
+    }
+
+    cell.special = 'bomb';
+    cell.bombTimer = BOMB_INITIAL_TIMER;
+
+    // Ensure the bomb has a valid color so it can be matched.
+    if (cell.colorIndex < 0 || cell.colorIndex >= numColors) {
+      cell.colorIndex = Math.floor(Math.random() * numColors);
+    }
   }
 
   return filled;

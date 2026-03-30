@@ -7,13 +7,14 @@
  */
 
 import {
-  GRID_COLS, GRID_ROWS, HEX_SIZE, PIECE_COLORS, STARFLOWER_COLOR, BLACK_PEARL_COLOR,
+  GRID_COLS, GRID_ROWS, HEX_SIZE, PIECE_COLORS, STARFLOWER_COLOR, BLACK_PEARL_COLOR, GRAND_POOBAH_COLOR,
   FRAME_COLOR, BOARD_BG_COLOR, TEXT_COLOR,
   HIGHLIGHT_COLOR, CLUSTER_HIGHLIGHT,
 } from './constants.js';
 import { hexToPixel, hexCorners } from './hex-math.js';
 import { getActiveGameMode, getActiveMatchMode } from './modes.js';
 import { getDisplayScore, getComboCount, getChainLevel } from './score.js';
+import { getHighScores } from './storage.js';
 // ─── Module state ───────────────────────────────────────────────
 let ctx;
 let canvasW, canvasH;   // physical CSS pixel dimensions
@@ -29,7 +30,9 @@ export function hasActiveRendererAnimations() {
   return creationParticles.length > 0 ||
          scorePopups.length > 0 ||
          floatingPieces.length > 0 ||
-         comboFadeStart > 0;
+         comboFadeStart > 0 ||
+         shockwaves.length > 0 ||
+         screenOverlay !== null;
 }
 
 // Per-cell animation overrides: "col,row" → { scale?, alpha?, offsetX?, offsetY?, hidden? }
@@ -40,6 +43,12 @@ let floatingPieces = [];  // { x, y, colorIndex, scale, alpha }
 
 // Creation celebration particles
 let creationParticles = [];  // { x, y, vx, vy, life, maxLife, size, hue }
+
+// Ring shockwaves: expanding circles that fade out
+let shockwaves = [];  // { x, y, r, maxR, life, maxLife, r, g, b }
+
+// Full-screen color wash overlay
+let screenOverlay = null;  // { r, g, b, alpha, life, maxLife } or null
 
 // ─── Combo overlay state ─────────────────────────────────────────
 let comboDispCount   = 0;   // peak combo count seen this cascade
@@ -53,7 +62,7 @@ let comboTierShowTime = 0;  // timestamp when current tier first appeared (for p
 let scorePopups = [];  // { x, y, vy, text, life, maxLife, fontSize, color }
 
 // Label tier thresholds (by combo count)
-const COMBO_THRESHOLDS = [2,  8,  12,  16,  20,  24];
+const COMBO_THRESHOLDS = [2,  5,   7,  10,  12,  15];
 const COMBO_LABELS     = ['COMBO', 'NICE!', 'SWEET!', 'AMAZING!', 'SICK!', 'HECKN SIC!'];
 const COMBO_COLORS     = ['#FFD740', '#FF9800', '#FF5722', '#E040FB', '#7C4DFF', '#4FC3F7'];
 const COMBO_FADE_MS    = 1200;
@@ -175,6 +184,82 @@ export function clearCreationParticles() {
   creationParticles = [];
 }
 
+// ─── Special Match Effect APIs ──────────────────────────────────
+
+/**
+ * Burst of colored particles matching a tile color — used for Color Nuke.
+ * @param {number} cx - center x in logical pixels
+ * @param {number} cy - center y in logical pixels
+ * @param {number} colorIndex - PIECE_COLORS index
+ * @param {number} count
+ */
+export function spawnColorNukeParticles(cx, cy, colorIndex, count = 40) {
+  const color = PIECE_COLORS[colorIndex];
+  // Convert hex color to approximate hue for particle system
+  const hueMap = [0, 30, 210, 130, 280]; // red, orange, blue, green, purple
+  const hue = colorIndex >= 0 && colorIndex < hueMap.length ? hueMap[colorIndex] : 0;
+  for (let i = 0; i < count; i++) {
+    const angle = (Math.PI * 2 / count) * i + (Math.random() - 0.5) * 0.6;
+    const speed = 2.5 + Math.random() * 4;
+    creationParticles.push({
+      x: cx, y: cy,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 1.0,
+      maxLife: 55 + Math.random() * 25,
+      size: 3 + Math.random() * 4,
+      hue,
+    });
+  }
+}
+
+/**
+ * Hot white-to-orange burst — used for mixed-color Explosion.
+ */
+export function spawnExplosionParticles(cx, cy, count = 60) {
+  for (let i = 0; i < count; i++) {
+    const angle = (Math.PI * 2 / count) * i + (Math.random() - 0.5) * 0.5;
+    const speed = 4 + Math.random() * 6;
+    const hue = 20 + Math.random() * 40; // orange-yellow fire range
+    creationParticles.push({
+      x: cx, y: cy,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 1.0,
+      maxLife: 35 + Math.random() * 20,
+      size: 3 + Math.random() * 5,
+      hue,
+    });
+  }
+}
+
+/**
+ * Spawn a ring shockwave that expands and fades.
+ * @param {number} cx - center x
+ * @param {number} cy - center y
+ * @param {number} maxRadius - how far the ring expands
+ * @param {number} rr - red 0-255
+ * @param {number} gg - green 0-255
+ * @param {number} bb - blue 0-255
+ */
+export function spawnRingShockwave(cx, cy, maxRadius, rr, gg, bb) {
+  shockwaves.push({ x: cx, y: cy, r: 0, maxR: maxRadius, life: 1.0, maxLife: 40, rr, gg, bb });
+  isDirty = true;
+}
+
+/**
+ * Flash the entire screen with a color overlay that fades out.
+ * @param {number} rr - red 0-255
+ * @param {number} gg - green 0-255
+ * @param {number} bb - blue 0-255
+ * @param {number} peakAlpha - peak alpha (0-1)
+ * @param {number} maxLife - lifetime in draw frames (approx 60fps)
+ */
+export function flashScreenOverlay(rr, gg, bb, peakAlpha = 0.25, maxLife = 30) {
+  screenOverlay = { rr, gg, bb, alpha: peakAlpha, life: 1.0, maxLife };
+  isDirty = true;
+}
+
 // ─── Main draw ──────────────────────────────────────────────────
 
 export function drawFrame(grid, hoverCluster, selectedCluster) {
@@ -284,6 +369,12 @@ export function drawFrame(grid, hoverCluster, selectedCluster) {
   // Creation celebration particles
   updateAndDrawParticles();
 
+  // Ring shockwaves
+  updateAndDrawShockwaves();
+
+  // Screen overlay flash
+  updateAndDrawScreenOverlay();
+
   // Floating score numbers
   updateAndDrawScorePopups();
 
@@ -305,6 +396,11 @@ function drawHex(cx, cy, size, colorIndex, alpha = 1) {
   // Black pearl pieces get the obsidian pearl rendering
   if (colorIndex === -2) {
     drawBlackPearlHex(cx, cy, size, alpha);
+    return;
+  }
+  // Grand Poobah pieces get the golden rendering
+  if (colorIndex === -3) {
+    drawGrandPoobahHex(cx, cy, size, alpha);
     return;
   }
 
@@ -584,6 +680,72 @@ function drawBlackPearlHex(cx, cy, size, alpha = 1) {
   ctx.restore();
 }
 
+// ─── Grand Poobah hex ───────────────────────────────────────────
+
+function drawGrandPoobahHex(cx, cy, size, alpha = 1) {
+  const color = GRAND_POOBAH_COLOR;
+  const corners = hexCorners(cx, cy, size);
+  const now = Date.now();
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
+  // Clip to hex shape
+  ctx.beginPath();
+  ctx.moveTo(corners[0].x, corners[0].y);
+  for (let i = 1; i < 6; i++) ctx.lineTo(corners[i].x, corners[i].y);
+  ctx.closePath();
+  ctx.save();
+  ctx.clip();
+
+  // Base fill: radiant golden gradient
+  const baseGrad = ctx.createRadialGradient(
+    cx, cy, size * 0.1,
+    cx, cy, size * 1.1
+  );
+  baseGrad.addColorStop(0, color.light);
+  baseGrad.addColorStop(0.5, color.base);
+  baseGrad.addColorStop(1, color.dark);
+  ctx.fillStyle = baseGrad;
+  ctx.fillRect(cx - size, cy - size, size * 2, size * 2);
+
+  // Crown / Sunburst pattern
+  for (let i = 0; i < 12; i++) {
+    const angle = (Math.PI * 2 / 12) * i + (now / 2000);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.cos(angle - 0.1) * size * 1.5, cy + Math.sin(angle - 0.1) * size * 1.5);
+    ctx.lineTo(cx + Math.cos(angle + 0.1) * size * 1.5, cy + Math.sin(angle + 0.1) * size * 1.5);
+    ctx.closePath();
+    ctx.fillStyle = `rgba(255, 255, 255, ${0.1 + (i % 2) * 0.1})`;
+    ctx.fill();
+  }
+
+  // Intense center glow
+  const glowPulse = 0.8 + 0.2 * Math.sin(now / 300);
+  const glowGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 0.6 * glowPulse);
+  glowGrad.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+  glowGrad.addColorStop(0.5, 'rgba(255, 215, 0, 0.5)');
+  glowGrad.addColorStop(1, 'rgba(255, 215, 0, 0)');
+  ctx.fillStyle = glowGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, size * 0.6 * glowPulse, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore(); // un-clip
+
+  // Golden majestic border
+  ctx.beginPath();
+  ctx.moveTo(corners[0].x, corners[0].y);
+  for (let i = 1; i < 6; i++) ctx.lineTo(corners[i].x, corners[i].y);
+  ctx.closePath();
+  ctx.strokeStyle = '#FFF8DC'; // cornsilk highlight
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  ctx.restore();
+}
+
 function drawSpecialIndicator(cx, cy, radius, type, alpha = 1, bombTimer, colorIndex) {
   // Starflower/blackpearl indicators are built into their hex renderers
   if (type === 'starflower' || type === 'blackpearl') return;
@@ -715,6 +877,48 @@ function updateAndDrawParticles() {
 
     ctx.restore();
   }
+}
+
+function updateAndDrawShockwaves() {
+  if (shockwaves.length === 0) return;
+  isDirty = true;
+  for (let i = shockwaves.length - 1; i >= 0; i--) {
+    const s = shockwaves[i];
+    s.life -= 1 / s.maxLife;
+    if (s.life <= 0) { shockwaves.splice(i, 1); continue; }
+    s.r = s.maxR * (1 - s.life);  // expand as life drains
+    const alpha = s.life * 0.8;
+    const lineW = 3 * s.life + 1;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(${s.rr},${s.gg},${s.bb},${alpha})`;
+    ctx.lineWidth = lineW;
+    ctx.stroke();
+    // Inner glow ring
+    if (s.r > 5) {
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r * 0.75, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(${s.rr},${s.gg},${s.bb},${alpha * 0.35})`;
+      ctx.lineWidth = lineW * 0.5;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+function updateAndDrawScreenOverlay() {
+  if (!screenOverlay) return;
+  isDirty = true;
+  screenOverlay.life -= 1 / screenOverlay.maxLife;
+  if (screenOverlay.life <= 0) { screenOverlay = null; return; }
+  const alpha = screenOverlay.alpha * screenOverlay.life;
+  const { rr, gg, bb } = screenOverlay;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = `rgb(${rr},${gg},${bb})`;
+  ctx.fillRect(0, 0, canvasW / boardScale, canvasH / boardScale);
+  ctx.restore();
 }
 
 function drawHexOutline(cx, cy, size, strokeColor, lineWidth) {
