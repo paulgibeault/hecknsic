@@ -125,9 +125,7 @@ export function detectBlackPearls(grid) {
     for (let r = 0; r < GRID_ROWS; r++) {
       const cell = grid[c][r];
       if (!cell) continue;
-      // Skip centers that are already black pearls — no re-detection
-      if (cell.special === 'blackpearl') continue;
-      const centerAlreadySpecial = (cell.special === 'starflower' || cell.special === 'grandpoobah');
+      const centerAlreadySpecial = (cell.special === 'starflower' || cell.special === 'blackpearl' || cell.special === 'grandpoobah');
 
       const nbrs = getNeighbors(c, r);
       const validStars = nbrs.filter(n =>
