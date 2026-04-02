@@ -7,13 +7,13 @@ const GAME_MODES = {
   chill:  { id: 'chill',  label: 'Chill',  hasBombs: false, hasGameOver: false },
 };
 
+// Line match mode removed — preserved at git tag feature/line-match-mode
 const MATCH_MODES = {
-  line: { id: 'line', label: 'Line', matchMode: 'line' },
   classic: { id: 'classic', label: 'Classic', matchMode: 'classic' },
 };
 
 let activeGameModeId = 'arcade';
-let activeMatchModeId = 'line';
+let activeMatchModeId = 'classic';
 
 export function loadActiveMode() {
   const savedGame = localStorage.getItem('hecknsic_active_game_mode');

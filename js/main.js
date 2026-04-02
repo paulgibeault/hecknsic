@@ -27,9 +27,9 @@ import {
   getLogoBounds, requestRedraw, clearDirty, getIsDirty, hasActiveRendererAnimations
 } from './renderer.js';
 import {
-  loadActiveMode, getActiveGameMode, getActiveMatchMode, 
-  getActiveGameModeId, getActiveMatchModeId, getCombinedModeId,
-  setActiveGameMode, setActiveMatchMode, getAllGameModes, getAllMatchModes
+  loadActiveMode, getActiveGameMode, getActiveMatchMode,
+  getActiveGameModeId, getCombinedModeId,
+  setActiveGameMode, getAllGameModes
 } from './modes.js';
 import { hexToPixel, getNeighbors, pixelToHex, findClusterAtPixel } from './hex-math.js';
 import {
@@ -136,9 +136,7 @@ function toggleModeDropdown() {
     document.querySelectorAll('[data-mode]').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.mode === getActiveGameModeId());
     });
-    document.querySelectorAll('[data-match]').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.match === getActiveMatchModeId());
-    });
+    // match mode selector removed (classic-only)
   } else {
     logoDropdown.classList.add('hidden');
   }
@@ -156,13 +154,6 @@ document.querySelectorAll('[data-mode]').forEach(btn => {
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
     switchGameMode(btn.dataset.mode);
-  });
-});
-
-document.querySelectorAll('[data-match]').forEach(btn => {
-  btn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    switchMatchMode(btn.dataset.match);
   });
 });
 
@@ -245,7 +236,7 @@ function showHighScores() {
   const scores = getHighScores(combinedId);
   const modeLabelEl = document.getElementById('hs-mode-label');
   if (modeLabelEl) {
-    modeLabelEl.textContent = `${getActiveGameMode().label} - ${getActiveMatchMode().label}`;
+    modeLabelEl.textContent = `${getActiveGameMode().label}`; // match mode label removed
   }
   
   if (scores.length === 0) {
@@ -288,11 +279,7 @@ if (urlGameMode && getAllGameModes().some(m => m.id === urlGameMode)) {
   hasUrlConfig = true;
 }
 
-const urlMatchMode = urlParams.get('match');
-if (urlMatchMode && getAllMatchModes().some(m => m.id === urlMatchMode)) {
-  setActiveMatchMode(urlMatchMode);
-  hasUrlConfig = true;
-}
+// line match mode URL param removed (classic-only)
 
 // Strip URL params so refreshing doesn't lock the user into the linked config
 if (hasUrlConfig) {
@@ -515,17 +502,7 @@ async function switchGameMode(newModeId) {
   resetBoardForNewMode();
 }
 
-async function switchMatchMode(newModeId) {
-  if (newModeId === getActiveMatchModeId()) return;
-  saveGame();
-  setActiveMatchMode(newModeId);
-
-  document.querySelectorAll('[data-match]').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.match === newModeId);
-  });
-
-  resetBoardForNewMode();
-}
+// switchMatchMode removed — line variant deprecated, see tag feature/line-match-mode
 
 function resetBoardForNewMode() {
   clearAllOverrides();
