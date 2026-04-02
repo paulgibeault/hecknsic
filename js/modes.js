@@ -3,8 +3,9 @@
  */
 
 const GAME_MODES = {
-  arcade: { id: 'arcade', label: 'Arcade', hasBombs: true,  hasGameOver: true },
-  chill:  { id: 'chill',  label: 'Chill',  hasBombs: false, hasGameOver: false },
+  arcade: { id: 'arcade', label: 'Arcade', hasBombs: true,  hasGameOver: true,  isPuzzle: false },
+  chill:  { id: 'chill',  label: 'Chill',  hasBombs: false, hasGameOver: false, isPuzzle: false },
+  puzzle: { id: 'puzzle', label: 'Puzzle', hasBombs: false, hasGameOver: true,  isPuzzle: true  },
 };
 
 // Line match mode removed — preserved at git tag feature/line-match-mode

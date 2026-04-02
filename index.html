@@ -13,6 +13,24 @@
 </head>
 <body>
   <canvas id="game"></canvas>
+
+  <!-- Puzzle HUD — shown only during active puzzle -->
+  <div id="puzzle-hud" style="display:none; position:fixed; top:0; left:0; right:0; z-index:50;
+       background: linear-gradient(to bottom, rgba(20,16,30,0.97), rgba(20,16,30,0));
+       padding: 10px 16px 24px; flex-direction: column; gap: 4px; pointer-events: none;">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <div style="font-size:0.7rem; font-weight:700; letter-spacing:2px; color:#8040c0; text-transform:uppercase;">🧩 Puzzle</div>
+      <div style="display:flex; gap:12px; align-items:center;">
+        <span style="font-size:0.7rem; color:#606070;" id="puzzle-par-text">par 6</span>
+        <span style="font-size:0.75rem; color:#a0a0b0;">Moves left:</span>
+        <span style="font-size:1.1rem; font-weight:700; color:#d0d0d8; min-width:2ch; text-align:right;" id="puzzle-moves-left">10</span>
+      </div>
+    </div>
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <span style="font-size:0.78rem; color:#9090a8;" id="puzzle-goal-text">Clear all red tiles</span>
+      <span style="font-size:0.72rem; color:#b070f0;" id="puzzle-goal-progress"></span>
+    </div>
+  </div>
   
   <!-- Help Button -->
   <button id="btn-help" class="icon-btn help-btn" aria-label="How to Play" style="right: 20px;">
@@ -50,6 +68,9 @@
         </button>
         <button class="dropdown-btn" data-mode="chill">
           <span class="icon">✨</span> Chill
+        </button>
+        <button class="dropdown-btn" data-mode="puzzle" id="dropdown-btn-puzzle">
+          <span class="icon">🧩</span> Puzzle
         </button>
       </div>
     </div>
@@ -125,6 +146,44 @@
       </div>
 
       <button id="btn-close-help" class="start-btn">Got it!</button>
+    </div>
+  </div>
+
+  <!-- Puzzle Selector Modal -->
+  <div id="modal-puzzle-select" class="modal hidden">
+    <div class="modal-content" style="max-width: 480px; max-height: 80vh; overflow-y: auto;">
+      <h2 style="color: #b070f0; border-color: #8040c0;">🧩 Puzzle Mode</h2>
+      <div id="puzzle-sector-list">
+        <!-- Populated by main.js -->
+      </div>
+      <button id="btn-close-puzzle-select" class="start-btn" style="background: #333; margin-top: 12px;">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Puzzle Result Modal -->
+  <div id="modal-puzzle-result" class="modal hidden">
+    <div class="modal-content text-center">
+      <h2 id="puzzle-result-title" style="color: #b070f0; border-color: #8040c0;">Puzzle Complete!</h2>
+      <div id="puzzle-result-stars" style="font-size: 2rem; letter-spacing: 4px; margin: 12px 0;">⭐⭐⭐</div>
+      <p id="puzzle-result-msg" style="color: #a0a0b0; margin-bottom: 16px;"></p>
+      <div class="score-summary" id="puzzle-result-stats"></div>
+      <div style="display: flex; gap: 12px; justify-content: center; margin-top: 16px;">
+        <button id="btn-puzzle-retry"  class="start-btn" style="background: #333; flex: 1;">Retry</button>
+        <button id="btn-puzzle-next"   class="start-btn" style="background: #8040c0; flex: 1;">Next →</button>
+      </div>
+      <button id="btn-puzzle-menu" class="start-btn" style="background: #222; margin-top: 8px; width: 100%;">Puzzle Menu</button>
+    </div>
+  </div>
+
+  <!-- Puzzle Failed Modal -->
+  <div id="modal-puzzle-failed" class="modal hidden">
+    <div class="modal-content text-center">
+      <h2 style="color: #ff9030; border-color: #ff9030;">Out of Moves</h2>
+      <p id="puzzle-failed-msg" style="color: #a0a0b0; margin-bottom: 16px;"></p>
+      <div style="display: flex; gap: 12px; justify-content: center;">
+        <button id="btn-puzzle-failed-retry" class="start-btn" style="background: #ff9030; flex: 1;">Try Again</button>
+        <button id="btn-puzzle-failed-menu"  class="start-btn" style="background: #333; flex: 1;">Puzzle Menu</button>
+      </div>
     </div>
   </div>
 

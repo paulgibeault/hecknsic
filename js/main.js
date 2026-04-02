@@ -51,6 +51,11 @@ import {
   saveGameState, loadGameState, clearGameState,
   addHighScore, getHighScores, loadSettings
 } from './storage.js';
+import {
+  initPuzzleModeUI, showPuzzleSelector, registerPuzzleCallbacks,
+  clearActivePuzzle, getActivePuzzle, getPuzzleMovesLeft,
+  onPuzzleMove, onStarflowerCreated,
+} from './puzzle-mode.js';
 
 // ─── Game state ─────────────────────────────────────────────────
 let grid;
@@ -75,6 +80,28 @@ window.debug = {
 const canvas = document.getElementById('game');
 initRenderer(canvas);
 initInput(canvas);
+
+// ─── Puzzle mode setup ───────────────────────────────────────────
+initPuzzleModeUI();
+
+registerPuzzleCallbacks(
+  // onLoad: replace the board with the puzzle's fixed grid
+  (puzzleGrid, cols, rows, puzzle) => {
+    setActiveGameMode('puzzle');
+    clearAllOverrides();
+    bombQueued = false;
+    selectedCluster = flowerCenter = pearlCenter = null;
+    moveCount = 0;
+    resetScore();
+    grid = puzzleGrid;
+    state = 'idle';
+    requestRedraw();
+  },
+  // onEnd: freeze input when puzzle ends
+  (reason) => {
+    state = 'gameover';
+  }
+);
 
 // Apply settings
 const settings = loadSettings();
@@ -485,9 +512,17 @@ function trySelect() {
 // ─── Mode selector ──────────────────────────────────────────────
 
 async function switchGameMode(newModeId) {
+  // Puzzle mode: open selector instead of switching directly
+  if (newModeId === 'puzzle') {
+    logoDropdown.classList.add('hidden');
+    showPuzzleSelector();
+    return;
+  }
+
   if (newModeId === getActiveGameModeId()) return;
-  saveGame();                     // persist current mode state
-  setActiveGameMode(newModeId);       // persist new selection
+  saveGame();
+  clearActivePuzzle();
+  setActiveGameMode(newModeId);
   if (newModeId === 'chill') {
     document.getElementById('dropdown-btn-end-session').classList.remove('hidden');
   } else {
@@ -874,8 +909,11 @@ async function animateBlackPearlCreation(bpResults) {
 
   applyGravity(grid);
   const mode = getActiveGameMode();
-  const filled = fillEmpty(grid, undefined, undefined, undefined, mode.hasBombs && bombQueued, { starflowers: 0, blackpearls: queuedBlackpearls });
-  if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
+  // Puzzle mode: no refill — tiles only fall, nothing spawns from top
+  if (!mode.isPuzzle) {
+    const filled = fillEmpty(grid, undefined, undefined, undefined, mode.hasBombs && bombQueued, { starflowers: 0, blackpearls: queuedBlackpearls });
+    if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
+  }
 }
 
 /** Shared post-rotation logic: tick bombs, cascade or detect specials */
@@ -967,8 +1005,15 @@ async function postRotationCheck() {
   }
 
   resetChain();
-  saveGame();
 
+  // Puzzle move tracking
+  const activePuzzle = getActivePuzzle();
+  if (activePuzzle) {
+    onPuzzleMove(grid, getScore(), getChainLevel());
+    // Don't saveGame for puzzles — fixed board, no persistence needed
+  } else {
+    saveGame();
+  }
 
   // Final check: did any un-cleared bombs expire?
   if (mode.hasBombs && mode.hasGameOver) {
@@ -1109,6 +1154,9 @@ function saveGame() {
  * @param {Array<{center, ring, ringColor}>} sfResults
  */
 async function animateStarflowerCreation(sfResults) {
+  // Track for puzzle goals
+  for (const _ of sfResults) onStarflowerCreated();
+
   // Collect all ring positions across all starflowers
   const allRing = [];
   const centers = [];
