@@ -153,10 +153,30 @@
   <div id="modal-puzzle-select" class="modal hidden">
     <div class="modal-content" style="max-width: 480px; max-height: 80vh; overflow-y: auto;">
       <h2 style="color: #b070f0; border-color: #8040c0;">🧩 Puzzle Mode</h2>
-      <div id="puzzle-sector-list">
-        <!-- Populated by main.js -->
+
+      <!-- Daily puzzle row -->
+      <div id="daily-puzzle-row" style="margin-bottom: 16px; padding: 12px; background: rgba(255,215,0,0.05); border: 1px solid rgba(255,215,0,0.2); border-radius: 8px;">
+        <div class="daily-badge">📅 Daily Challenge</div>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <div id="daily-puzzle-name" style="font-weight:600; color:#e0d8a0; margin-bottom:2px;">Today's Puzzle</div>
+            <div id="daily-puzzle-desc" style="font-size:0.75rem; color:#807060;"></div>
+          </div>
+          <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
+            <div id="daily-puzzle-stars" style="font-size:0.85rem; letter-spacing:2px;">☆☆☆</div>
+            <button id="btn-play-daily" class="start-btn" style="margin:0; padding:6px 14px; font-size:0.8rem; width:auto; background:#a08000;">Play</button>
+          </div>
+        </div>
       </div>
-      <button id="btn-close-puzzle-select" class="start-btn" style="background: #333; margin-top: 12px;">Cancel</button>
+
+      <div id="puzzle-sector-list">
+        <!-- Populated by puzzle-mode.js -->
+      </div>
+
+      <div style="display:flex; gap:8px; margin-top:12px;">
+        <button id="btn-open-puzzle-editor" class="start-btn" style="background: #333; flex:1; margin:0; padding:10px; font-size:0.85rem;">✏️ Editor</button>
+        <button id="btn-close-puzzle-select" class="start-btn" style="background: #222; flex:1; margin:0; padding:10px; font-size:0.85rem;">Cancel</button>
+      </div>
     </div>
   </div>
 
@@ -184,6 +204,79 @@
         <button id="btn-puzzle-failed-retry" class="start-btn" style="background: #ff9030; flex: 1;">Try Again</button>
         <button id="btn-puzzle-failed-menu"  class="start-btn" style="background: #333; flex: 1;">Puzzle Menu</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Puzzle Editor Modal -->
+  <div id="modal-puzzle-editor" class="modal hidden">
+    <div class="modal-content" style="max-width: 480px;">
+      <h2 style="color: #b070f0; border-color: #8040c0;">✏️ Puzzle Editor</h2>
+
+      <div class="puzzle-editor-row" style="margin-bottom: 12px;">
+        <label>Load code</label>
+        <input id="share-code-input" class="puzzle-editor-input" placeholder="Paste share code here…" style="flex:1;" />
+        <button id="btn-load-share-code" class="start-btn" style="background:#8040c0;margin:0 0 0 8px;padding:8px 12px;width:auto;">Load</button>
+      </div>
+
+      <div class="dropdown-divider" style="margin: 12px 0;"></div>
+
+      <div class="puzzle-editor-row">
+        <label>Name</label>
+        <input id="editor-name" class="puzzle-editor-input" placeholder="Custom Puzzle" />
+      </div>
+      <div class="puzzle-editor-row">
+        <label>Description</label>
+        <input id="editor-desc" class="puzzle-editor-input" placeholder="Optional description" />
+      </div>
+      <div style="display:flex; gap:8px; margin-bottom:8px;">
+        <div class="puzzle-editor-row" style="flex:1; margin:0;">
+          <label style="width:40px;">Cols</label>
+          <input id="editor-cols" class="puzzle-editor-input" type="number" value="9" min="3" max="9" />
+        </div>
+        <div class="puzzle-editor-row" style="flex:1; margin:0;">
+          <label style="width:40px;">Rows</label>
+          <input id="editor-rows" class="puzzle-editor-input" type="number" value="9" min="3" max="9" />
+        </div>
+        <div class="puzzle-editor-row" style="flex:1; margin:0;">
+          <label style="width:50px;">Moves</label>
+          <input id="editor-moves" class="puzzle-editor-input" type="number" value="20" min="3" max="99" />
+        </div>
+        <div class="puzzle-editor-row" style="flex:1; margin:0;">
+          <label style="width:30px;">Par</label>
+          <input id="editor-par" class="puzzle-editor-input" type="number" value="12" min="2" max="99" />
+        </div>
+      </div>
+      <div class="puzzle-editor-row">
+        <label>Goal</label>
+        <select id="editor-goal-type" class="puzzle-editor-input">
+          <option value="clear_color">Clear color</option>
+          <option value="defuse_bomb">Defuse bomb</option>
+          <option value="make_starflower">Make starflower</option>
+          <option value="score">Score target</option>
+          <option value="clear_all">Clear all</option>
+        </select>
+      </div>
+      <div class="puzzle-editor-row" id="editor-goal-param-row">
+        <label id="editor-goal-param-label">Color (0–4)</label>
+        <input id="editor-goal-param" class="puzzle-editor-input" placeholder="0=red 1=orange 2=blue 3=green 4=purple" value="0" />
+      </div>
+
+      <div class="puzzle-editor-row" style="margin-top:4px;">
+        <label>Board</label>
+        <textarea id="editor-board-string" class="puzzle-editor-board" placeholder="Capture the live board or paste a board string…"></textarea>
+      </div>
+
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <button id="btn-capture-board"   class="start-btn" style="margin:0;flex:1;background:#333;padding:10px;">📷 Capture Board</button>
+        <button id="btn-generate-code"   class="start-btn" style="margin:0;flex:1;background:#333;padding:10px;">🔗 Generate Code</button>
+        <button id="btn-play-from-editor" class="start-btn" style="margin:0;flex:1;background:#8040c0;padding:10px;">▶ Play</button>
+      </div>
+
+      <div id="editor-status" class="copy-confirm" style="margin-top:6px; text-align:center; opacity:0;"></div>
+
+      <div id="share-code-output" class="share-code-box hidden" title="Tap to copy"></div>
+
+      <button id="btn-close-puzzle-editor" class="start-btn" style="background:#222; margin-top:12px;">Close</button>
     </div>
   </div>
 

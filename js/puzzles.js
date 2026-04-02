@@ -297,6 +297,107 @@ export const PUZZLE_SECTORS = [
                '5:0:0 5:1:2 5:2:0 5:3:2 5:4:0 5:5:2 5:6:0 ' +
                '6:0:2 6:1:0 6:2:2 6:3:0 6:4:2 6:5:0 6:6:2',
       },
+      {
+        id: 'p2-3',
+        name: 'The Long Chain',
+        description: 'The board is primed for cascades. Find the trigger — one rotation should start a chain reaction.',
+        cols: 7,
+        rows: 7,
+        moveLimit: 8,
+        par: 3,
+        noRefill: true,
+        goal: { type: 'score', target: 350 },
+        // Pre-staged cascade: columns of matching colors arranged to fall into each other
+        board: '0:0:0 0:1:0 0:2:0 0:3:1 0:4:1 0:5:2 0:6:2 ' +
+               '1:0:1 1:1:1 1:2:1 1:3:0 1:4:0 1:5:3 1:6:3 ' +
+               '2:0:2 2:1:2 2:2:2 2:3:3 2:4:3 2:5:0 2:6:0 ' +
+               '3:0:3 3:1:3 3:2:3 3:3:2 3:4:2 3:5:1 3:6:1 ' +
+               '4:0:0 4:1:0 4:2:1 4:3:1 4:4:2 4:5:2 4:6:3 ' +
+               '5:0:1 5:1:2 5:2:0 5:3:3 5:4:1 5:5:0 5:6:2 ' +
+               '6:0:2 6:1:3 6:2:1 6:3:0 6:4:3 6:5:1 6:6:0',
+      },
+    ],
+  },
+  {
+    id: 'sector-3',
+    name: 'Sector 3 — Expert Circuit',
+    description: 'Larger boards. Every move counts. Some will take multiple attempts.',
+    puzzles: [
+      {
+        id: 'p3-1',
+        name: 'Purple Rain',
+        description: 'The board is dominated by purple. Strip it down to nothing — 9 moves, no mercy.',
+        cols: 7,
+        rows: 7,
+        moveLimit: 14,
+        par: 9,
+        noRefill: true,
+        goal: { type: 'clear_color', colorIndex: 4 },
+        board: '0:0:4 0:1:2 0:2:4 0:3:0 0:4:4 0:5:2 0:6:4 ' +
+               '1:0:2 1:1:4 1:2:2 1:3:4 1:4:2 1:5:4 1:6:2 ' +
+               '2:0:4 2:1:0 2:2:4 2:3:2 2:4:4 2:5:0 2:6:4 ' +
+               '3:0:0 3:1:4 3:2:0 3:3:4 3:4:0 3:5:4 3:6:0 ' +
+               '4:0:4 4:1:2 4:2:4 4:3:0 4:4:4 4:5:2 4:6:4 ' +
+               '5:0:2 5:1:4 5:2:2 5:3:4 5:4:2 5:5:4 5:6:2 ' +
+               '6:0:4 6:1:0 6:2:4 6:3:2 6:4:4 6:5:0 6:6:4',
+      },
+      {
+        id: 'p3-2',
+        name: 'Bloom',
+        description: 'The board is seeded for a double starflower. Find the two centers — they\'re closer than you think.',
+        cols: 7,
+        rows: 7,
+        moveLimit: 12,
+        par: 7,
+        noRefill: true,
+        goal: { type: 'make_starflower', count: 2 },
+        // Two near-starflower formations — one green ring at (2,3), one blue ring at (5,3)
+        // Each needs 1–2 rotations to complete
+        board: '0:0:1 0:1:0 0:2:3 0:3:3 0:4:3 0:5:0 0:6:1 ' +
+               '1:0:0 1:1:3 1:2:0 1:3:0 1:4:0 1:5:2 1:6:0 ' +
+               '2:0:3 2:1:0 2:2:3 2:3:1 2:4:3 2:5:0 2:6:3 ' +
+               '3:0:3 3:1:0 3:2:0 3:3:3 3:4:0 3:5:0 3:6:3 ' +
+               '4:0:3 4:1:2 4:2:3 4:3:1 4:4:3 4:5:2 4:6:3 ' +
+               '5:0:0 5:1:2 5:2:0 5:3:0 5:4:0 5:5:2 5:6:0 ' +
+               '6:0:1 6:1:0 6:2:2 6:3:2 6:4:2 6:5:0 6:6:1',
+      },
+      {
+        id: 'p3-3',
+        name: 'Dead Board Walking',
+        description: 'The board is nearly locked. You have 6 moves to score 500 before it all freezes.',
+        cols: 7,
+        rows: 7,
+        moveLimit: 10,
+        par: 6,
+        noRefill: true,
+        goal: { type: 'score', target: 500 },
+        // Dense same-color clusters ready to cascade if you can trigger the first break
+        board: '0:0:0 0:1:0 0:2:0 0:3:0 0:4:1 0:5:1 0:6:1 ' +
+               '1:0:0 1:1:0 1:2:0 1:3:1 1:4:1 1:5:1 1:6:2 ' +
+               '2:0:0 2:1:0 2:2:1 2:3:1 2:4:1 2:5:2 2:6:2 ' +
+               '3:0:0 3:1:1 3:2:1 3:3:1 3:4:2 3:5:2 3:6:2 ' +
+               '4:0:1 4:1:1 4:2:1 4:3:2 4:4:2 4:5:2 4:6:3 ' +
+               '5:0:1 5:1:1 5:2:2 5:3:2 5:4:2 5:5:3 5:6:3 ' +
+               '6:0:1 6:1:2 6:2:2 6:3:2 6:4:3 6:5:3 6:6:3',
+      },
+      {
+        id: 'p3-4',
+        name: 'The Gauntlet',
+        description: 'Three bombs. All different colors. All ticking. Welcome to the Gauntlet.',
+        cols: 7,
+        rows: 7,
+        moveLimit: 15,
+        par: 10,
+        noRefill: true,
+        goal: { type: 'defuse_bomb' },
+        board: '0:0:0 0:1:1 0:2:2 0:3:3 0:4:2 0:5:1 0:6:0 ' +
+               '1:0:1 1:1:0 1:2:1 1:3:2 1:4:1 1:5:0 1:6:1 ' +
+               '2:0:2 2:1:1 2:2:0b12 2:3:1 2:4:0 2:5:1 2:6:2 ' +
+               '3:0:3 3:1:2 3:2:1 3:3:3 3:4:1 3:5:2 3:6:3 ' +
+               '4:0:2 4:1:1 4:2:2 4:3:1 4:4:2b12 4:5:1 4:6:2 ' +
+               '5:0:1 5:1:0 5:2:3 5:3:2 5:4:3 5:5:3b12 5:6:1 ' +
+               '6:0:0 6:1:1 6:2:2 6:3:3 6:4:2 6:5:1 6:6:0',
+      },
     ],
   },
 ];

@@ -24,6 +24,8 @@ import {
   savePuzzleProgress,
   isSectorUnlocked,
 } from './storage.js';
+import { getTodaysPuzzle, getDailyDateString, getDailyProgress } from './daily-puzzle.js';
+import { showPuzzleEditor, registerEditorCallbacks, initPuzzleEditorUI } from './puzzle-editor.js';
 
 // ─── Active puzzle state ────────────────────────────────────────
 
@@ -34,6 +36,7 @@ let stats          = { totalMoves: 0, starflowersMade: 0, score: 0 };
 let goalMet        = false;
 let _onPuzzleLoad  = null;  // callback(grid, cols, rows, puzzle) — set by main.js
 let _onPuzzleEnd   = null;  // callback(reason) — 'complete' | 'failed'
+let _customPuzzles = {};    // id → puzzle (for custom/daily puzzles not in registry)
 
 // ─── Public API ─────────────────────────────────────────────────
 
@@ -48,12 +51,17 @@ export function getPuzzleMovesUsed(){ return movesUsed; }
 export function getPuzzleStats()    { return stats; }
 
 /**
- * Load and start a puzzle by id.
- * Called when the player clicks a puzzle in the selector.
+ * Load and start a puzzle by id or by puzzle object directly (custom/daily).
  */
-export function startPuzzle(puzzleId) {
-  const puzzle = getPuzzleById(puzzleId);
-  if (!puzzle) { console.error('Unknown puzzle:', puzzleId); return; }
+export function startPuzzle(puzzleIdOrObject) {
+  let puzzle;
+  if (typeof puzzleIdOrObject === 'object') {
+    puzzle = puzzleIdOrObject;
+    _customPuzzles[puzzle.id] = puzzle;  // register so retry/next can find it
+  } else {
+    puzzle = getPuzzleById(puzzleIdOrObject) ?? _customPuzzles[puzzleIdOrObject];
+  }
+  if (!puzzle) { console.error('Unknown puzzle:', puzzleIdOrObject); return; }
 
   activePuzzle = puzzle;
   movesUsed    = 0;
@@ -124,24 +132,31 @@ export function clearActivePuzzle() {
 // ─── Puzzle selector modal ──────────────────────────────────────
 
 export function showPuzzleSelector() {
+  // Populate daily puzzle row
+  const daily = getTodaysPuzzle();
+  const dailyProgress = getDailyProgress(getDailyDateString());
+  const dailyStars = dailyProgress?.stars ?? 0;
+  const nameEl = document.getElementById('daily-puzzle-name');
+  const descEl = document.getElementById('daily-puzzle-desc');
+  const starsEl = document.getElementById('daily-puzzle-stars');
+  if (nameEl) nameEl.textContent = daily.name;
+  if (descEl) descEl.textContent = daily.description;
+  if (starsEl) starsEl.textContent = '⭐'.repeat(dailyStars) + '☆'.repeat(3 - dailyStars);
+
+  // Populate sector list
   const container = document.getElementById('puzzle-sector-list');
   if (!container) return;
-
   container.innerHTML = '';
 
   for (const sector of PUZZLE_SECTORS) {
     const unlocked = isSectorUnlocked(sector.id, PUZZLE_SECTORS);
 
     const sectorEl = document.createElement('div');
-    sectorEl.style.cssText = 'margin-bottom: 20px;';
+    sectorEl.style.marginBottom = '20px';
+    sectorEl.className = unlocked ? '' : 'puzzle-sector-locked';
 
     const header = document.createElement('div');
-    header.style.cssText = `
-      font-size: 0.75rem; font-weight: 700; letter-spacing: 2px;
-      color: ${unlocked ? '#b070f0' : '#555'}; text-transform: uppercase;
-      margin-bottom: 8px; padding-bottom: 4px;
-      border-bottom: 1px solid ${unlocked ? '#4a2070' : '#333'};
-    `;
+    header.className = 'puzzle-sector-header';
     header.textContent = unlocked ? sector.name : `🔒 ${sector.name}`;
     sectorEl.appendChild(header);
 
@@ -158,29 +173,19 @@ export function showPuzzleSelector() {
 
         const btn = document.createElement('button');
         btn.className = 'puzzle-select-btn';
-        btn.style.cssText = `
-          display: flex; align-items: center; justify-content: space-between;
-          width: 100%; padding: 10px 12px; margin-bottom: 6px;
-          background: #1e2130; border: 1px solid #333; border-radius: 6px;
-          color: #d0d0d8; font-size: 0.85rem; cursor: pointer;
-          transition: border-color 0.15s, background 0.15s;
-          text-align: left;
-        `;
-        btn.onmouseover = () => { btn.style.borderColor = '#8040c0'; btn.style.background = '#252840'; };
-        btn.onmouseout  = () => { btn.style.borderColor = '#333';    btn.style.background = '#1e2130'; };
 
         const info = document.createElement('div');
         const title = document.createElement('div');
-        title.style.cssText = 'font-weight: 600; margin-bottom: 2px;';
+        title.className = 'puzzle-btn-name';
         title.textContent = puzzle.name;
-        const desc = document.createElement('div');
-        desc.style.cssText = 'color: #707080; font-size: 0.75rem;';
-        desc.textContent = `${puzzle.moveLimit} moves · par ${puzzle.par}`;
+        const meta = document.createElement('div');
+        meta.className = 'puzzle-btn-meta';
+        meta.textContent = `${puzzle.moveLimit} moves · par ${puzzle.par} · ${puzzle.description.slice(0, 50)}…`;
         info.appendChild(title);
-        info.appendChild(desc);
+        info.appendChild(meta);
 
         const starDisplay = document.createElement('div');
-        starDisplay.style.cssText = 'font-size: 0.9rem; flex-shrink: 0; margin-left: 8px;';
+        starDisplay.className = 'puzzle-btn-stars';
         starDisplay.textContent = starStr;
 
         btn.appendChild(info);
@@ -285,7 +290,23 @@ function hidePuzzleModals() {
 
 // ─── Modal button wiring ────────────────────────────────────────
 
-export function initPuzzleModeUI() {
+export function initPuzzleModeUI(getGridFn) {
+  // Init puzzle editor (pass grid capture + start callbacks)
+  initPuzzleEditorUI();
+  registerEditorCallbacks(getGridFn, startPuzzle);
+
+  // Daily puzzle play button
+  document.getElementById('btn-play-daily')?.addEventListener('click', () => {
+    document.getElementById('modal-puzzle-select').classList.add('hidden');
+    startPuzzle(getTodaysPuzzle());
+  });
+
+  // Open puzzle editor from selector
+  document.getElementById('btn-open-puzzle-editor')?.addEventListener('click', () => {
+    document.getElementById('modal-puzzle-select').classList.add('hidden');
+    showPuzzleEditor();
+  });
+
   // Close puzzle selector
   document.getElementById('btn-close-puzzle-select')?.addEventListener('click', () => {
     document.getElementById('modal-puzzle-select').classList.add('hidden');

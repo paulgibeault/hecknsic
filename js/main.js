@@ -82,7 +82,7 @@ initRenderer(canvas);
 initInput(canvas);
 
 // ─── Puzzle mode setup ───────────────────────────────────────────
-initPuzzleModeUI();
+initPuzzleModeUI(() => grid);
 
 registerPuzzleCallbacks(
   // onLoad: replace the board with the puzzle's fixed grid
