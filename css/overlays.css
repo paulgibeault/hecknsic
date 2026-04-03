@@ -343,6 +343,8 @@
   top: 0; left: 0; right: 0;
   z-index: 50;
   background: linear-gradient(to bottom, rgba(16, 12, 24, 0.95) 70%, rgba(16, 12, 24, 0));
+  /* Solid cap covers the iOS status bar area so no light strip shows through */
+  box-shadow: 0 -100px 0 100px #0d0a14;
   padding: 0 16px 20px;
   pointer-events: none;
   font-family: inherit;
