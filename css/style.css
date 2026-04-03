@@ -134,10 +134,10 @@ html, body {
   }
 
   .icon-btn {
-    zoom: var(--ui-scale, 1);
+    zoom: 1;
   }
 
-  #puzzle-hud {
+  #game-hud {
     zoom: var(--ui-scale, 1);
   }
 

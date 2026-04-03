@@ -8,13 +8,11 @@
 
 import {
   GRID_COLS, GRID_ROWS, HEX_SIZE, PIECE_COLORS, STARFLOWER_COLOR, BLACK_PEARL_COLOR, GRAND_POOBAH_COLOR,
-  FRAME_COLOR, BOARD_BG_COLOR, TEXT_COLOR,
+  FRAME_COLOR, BOARD_BG_COLOR,
   HIGHLIGHT_COLOR, CLUSTER_HIGHLIGHT,
 } from './constants.js';
 import { hexToPixel, hexCorners } from './hex-math.js';
-import { getActiveGameMode, getActiveMatchMode } from './modes.js';
-import { getDisplayScore, getComboCount, getChainLevel } from './score.js';
-import { getHighScores } from './storage.js';
+import { getComboCount, getChainLevel } from './score.js';
 // ─── Module state ───────────────────────────────────────────────
 let ctx;
 let canvasW, canvasH;   // physical CSS pixel dimensions
@@ -69,8 +67,6 @@ const COMBO_LABELS     = ['COMBO', 'NICE!', 'SWEET!', 'AMAZING!', 'SICK!', 'HECK
 const COMBO_COLORS     = ['#FFD740', '#FF9800', '#FF5722', '#E040FB', '#7C4DFF', '#4FC3F7'];
 const COMBO_FADE_MS    = 1200;
 
-const logoImg = new Image();
-logoImg.src = 'img/logo_header.png';
 
 export function initRenderer(canvas) {
   ctx = canvas.getContext('2d');
@@ -113,10 +109,9 @@ function recalcOrigin() {
   boardScale = Math.min(maxScale, fitScaleX, fitScaleY);
 
   // Expose scale to CSS so HTML overlays (menu, buttons, HUD) can grow to match.
-  // Clamp between 1 and 2 so overlays don't get absurdly large.
   if (isDesktop) {
     document.documentElement.style.setProperty(
-      '--ui-scale', String(Math.min(2, Math.max(1, boardScale / 1.2)))
+      '--ui-scale', String(Math.max(1, boardScale))
     );
   }
 
@@ -150,21 +145,6 @@ export function setActiveGridSize(cols, rows) {
 
 export function getActiveGridSize() {
   return { cols: activeGridCols, rows: activeGridRows };
-}
-
-/**
- * Returns the bounding box of the logo in logical (design) space.
- * Returns null if the logo image is not yet loaded.
- */
-export function getLogoBounds() {
-  if (!logoImg.complete || logoImg.naturalWidth === 0) return null;
-  const s = getLogoScale();
-  return { x: 16 / boardScale, y: 5 / boardScale, w: logoImg.width * s, h: logoImg.height * s };
-}
-
-/** Logo scale: fixed screen size (~82px) regardless of boardScale. */
-function getLogoScale() {
-  return 0.085 / boardScale;
 }
 
 // ─── Override API ───────────────────────────────────────────────
@@ -1155,45 +1135,8 @@ function drawComboOverlay() {
 
 // ─── HUD ────────────────────────────────────────────────────────
 
-function drawHUD() {
-  // Scale font/logo sizes so they stay a consistent screen size
-  // regardless of boardScale (which inflates logical→screen).
-  const s = boardScale;
-  const fontSize = (sz) => `${Math.round(sz / s)}px`;
-  const pad = 16 / s;
-  let textStartY = 28 / s;
-
-  // Logo
-  if (logoImg.complete && logoImg.naturalWidth > 0) {
-    const logoS = getLogoScale();
-    const w = logoImg.width * logoS;
-    const h = logoImg.height * logoS;
-    ctx.drawImage(logoImg, pad, 5 / s, w, h);
-    textStartY = 5 / s + h + 24 / s;
-  } else {
-    // Fallback if not loaded
-    ctx.fillStyle = TEXT_COLOR;
-    ctx.font = `bold ${fontSize(22)} "Segoe UI", system-ui, sans-serif`;
-    ctx.textAlign = 'left';
-    ctx.fillText('Hecknsic', pad, textStartY);
-    textStartY += 24 / s;
-  }
-
-  // Draw Score
-  ctx.textAlign = 'left';
-  ctx.fillStyle = TEXT_COLOR;
-  ctx.font = `bold ${fontSize(20)} "Segoe UI", system-ui, sans-serif`;
-  ctx.fillText(`SCORE  ${getDisplayScore()}`, pad, textStartY);
-
-  // Draw Mode Indicator
-  ctx.fillStyle = '#50B0FF';
-  ctx.font = `bold ${fontSize(12)} "Segoe UI", system-ui, sans-serif`;
-  ctx.letterSpacing = '1px';
-  const gameMode = getActiveGameMode()?.label || 'ARCADE';
-  const matchMode = getActiveMatchMode()?.label || 'LINE';
-  ctx.fillText(`${gameMode.toUpperCase()} - ${matchMode.toUpperCase()}`, pad, textStartY + 18 / s);
-  ctx.letterSpacing = '0px'; // reset
-}
+// HUD is now rendered entirely in HTML (game-hud element).
+function drawHUD() {}
 
 // ─── Helpers ────────────────────────────────────────────────────
 

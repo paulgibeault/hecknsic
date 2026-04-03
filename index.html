@@ -14,37 +14,44 @@
 <body>
   <canvas id="game"></canvas>
 
-  <!-- Puzzle HUD — shown only during active puzzle -->
-  <div id="puzzle-hud" style="display:none; position:fixed; top:0; left:0; right:0; z-index:50;
-       background: linear-gradient(to bottom, rgba(20,16,30,0.97), rgba(20,16,30,0));
-       padding: 8px 16px 28px; padding-top: 60px; flex-direction: column; gap: 6px; pointer-events: none;">
-    <div style="display:flex; justify-content:space-between; align-items:center;">
-      <div style="display:flex; align-items:center; gap:10px;">
-        <div style="font-size:0.75rem; font-weight:700; letter-spacing:2px; color:#8040c0; text-transform:uppercase;">🧩 Puzzle</div>
-        <button id="btn-puzzle-restart" style="pointer-events:auto; background:rgba(128,64,192,0.3); border:1px solid rgba(128,64,192,0.5); color:#d0c0f0; font-size:0.7rem; font-weight:700; letter-spacing:1px; text-transform:uppercase; padding:4px 10px; border-radius:6px; cursor:pointer;">↻ Restart</button>
+  <!-- Game HUD — shared header for all modes -->
+  <div id="game-hud" class="game-hud">
+    <div class="game-hud-bar">
+      <!-- Left: logo + mode info -->
+      <div class="game-hud-left">
+        <img id="game-hud-logo" src="img/logo_header.png" alt="Hecknsic" class="game-hud-logo">
+        <div class="game-hud-meta">
+          <div id="game-hud-mode" class="game-hud-mode">💣 Arcade</div>
+          <div id="game-hud-subtitle" class="game-hud-subtitle"></div>
+        </div>
       </div>
-      <div style="display:flex; gap:12px; align-items:center;">
-        <span style="font-size:0.75rem; color:#606070;" id="puzzle-par-text">par 6</span>
-        <span style="font-size:0.85rem; color:#a0a0b0;">Moves left:</span>
-        <span style="font-size:1.3rem; font-weight:700; color:#d0d0d8; min-width:2ch; text-align:right;" id="puzzle-moves-left">10</span>
+      <!-- Right: score (arcade/chill) or moves (puzzle) + action buttons -->
+      <div class="game-hud-right">
+        <!-- Arcade / Chill score -->
+        <div id="hud-score-group" class="game-hud-score">
+          <span class="game-hud-score-label">Score</span>
+          <span id="hud-score-value" class="game-hud-score-value">0</span>
+        </div>
+        <!-- Puzzle: moves + progress -->
+        <div id="hud-puzzle-group" class="game-hud-puzzle-info" style="display:none;">
+          <button id="btn-puzzle-restart" class="game-hud-restart" aria-label="Restart puzzle">↻</button>
+          <div class="game-hud-moves">
+            <span class="game-hud-moves-label">Moves</span>
+            <span id="puzzle-moves-left" class="game-hud-moves-value">10</span>
+          </div>
+          <div class="game-hud-progress">
+            <span id="puzzle-goal-progress" class="game-hud-progress-text"></span>
+            <span id="puzzle-par-text" class="game-hud-par">par 6</span>
+          </div>
+        </div>
+        <!-- High Score Button -->
+        <div id="scores-wrapper" class="scores-wrapper">
+          <button id="btn-scores" class="icon-btn scores-btn" aria-label="High Scores">🏆</button>
+        </div>
+        <!-- Help Button -->
+        <button id="btn-help" class="icon-btn help-btn" aria-label="How to Play">?</button>
       </div>
     </div>
-    <div style="display:flex; justify-content:space-between; align-items:center;">
-      <span id="puzzle-goal-text" style="font-size:1.1rem; font-weight:700; color:#ffd740; letter-spacing:0.5px; text-shadow: 0 0 12px rgba(255,215,64,0.4);">Clear all red tiles</span>
-      <span id="puzzle-goal-progress" style="font-size:0.85rem; font-weight:600; color:#b070f0;"></span>
-    </div>
-  </div>
-  
-  <!-- Help Button -->
-  <button id="btn-help" class="icon-btn help-btn" aria-label="How to Play" style="right: 20px;">
-    ?
-  </button>
-  
-  <!-- High Score Button -->
-  <div id="scores-wrapper" style="position: absolute; right: 70px; top: 20px; text-align: center; z-index: 10;">
-    <button id="btn-scores" class="icon-btn scores-btn" aria-label="High Scores" style="position: relative; right: 0; top: 0;">
-      🏆
-    </button>
   </div>
 
 

@@ -26,7 +26,7 @@ import {
   spawnCreationParticles, spawnScorePopup,
   spawnColorNukeParticles, spawnExplosionParticles,
   spawnRingShockwave, flashScreenOverlay,
-  getLogoBounds, requestRedraw, clearDirty, getIsDirty, hasActiveRendererAnimations,
+  requestRedraw, clearDirty, getIsDirty, hasActiveRendererAnimations,
   setActiveGridSize,
 } from './renderer.js';
 import {
@@ -36,7 +36,7 @@ import {
 } from './modes.js';
 import { hexToPixel, getNeighbors, pixelToHex, findClusterAtPixel } from './hex-math.js';
 import {
-  initInput, getHoverCluster, consumeAction, getLastClickPos, getMousePos, triggerAction,
+  initInput, getHoverCluster, consumeAction, getLastClickPos, triggerAction,
   setKeyBindings, clearPendingAction, setClusterCenterPx,
 } from './input.js?v=3';
 import { tween, updateTweens, easeOutCubic, easeOutBounce, hasActiveTweens, linear } from './tween.js';
@@ -209,6 +209,12 @@ window.addEventListener('click', (e) => {
   }
 });
 
+// Game HUD logo opens the mode dropdown
+document.getElementById('game-hud-logo')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  toggleModeDropdown();
+});
+
 document.querySelectorAll('[data-mode]').forEach(btn => {
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -345,10 +351,59 @@ function updateControlsVisibility() {
   }
 }
 
+// ─── Unified HTML HUD ──────────────────────────────────────────
+
+const MODE_LABELS = { arcade: '💣 Arcade', chill: '✨ Chill', puzzle: '🧩 Puzzle' };
+
+/** Sync the HTML game-hud to the current mode and score. */
+function updateGameHUD() {
+  const mode = getActiveGameMode();
+  const hud = document.getElementById('game-hud');
+  if (!hud) return;
+
+  // Skip score updates when puzzle mode owns the right-side group
+  if (mode.isPuzzle) return;
+
+  hud.dataset.mode = mode.id;
+  const modeEl    = document.getElementById('game-hud-mode');
+  const scoreEl   = document.getElementById('hud-score-value');
+
+  if (modeEl)  modeEl.textContent  = MODE_LABELS[mode.id] || mode.label;
+  if (scoreEl) scoreEl.textContent = getDisplayScore().toLocaleString();
+}
+
+/** Called when switching modes to reconfigure the HUD layout. */
+function syncHUDForMode(modeId) {
+  const hud = document.getElementById('game-hud');
+  if (hud) hud.dataset.mode = modeId;
+
+  const modeEl      = document.getElementById('game-hud-mode');
+  const subtitleEl   = document.getElementById('game-hud-subtitle');
+  const scoreGroup  = document.getElementById('hud-score-group');
+  const puzzleGroup = document.getElementById('hud-puzzle-group');
+
+  if (modeEl) modeEl.textContent = MODE_LABELS[modeId] || modeId;
+  if (subtitleEl) subtitleEl.textContent = '';
+
+  if (modeId === 'puzzle') {
+    if (scoreGroup)  scoreGroup.style.display = 'none';
+    if (puzzleGroup) puzzleGroup.style.display = '';
+  } else {
+    if (scoreGroup)  scoreGroup.style.display = '';
+    if (puzzleGroup) puzzleGroup.style.display = 'none';
+  }
+}
+
 window.addEventListener('resize', () => resize(canvas));
 
 // Restore active mode then load per-mode saved state
 loadActiveMode();
+
+// Puzzle mode is transient (board state isn't persisted), so it can't be
+// meaningfully restored on reload.  Fall back to arcade.
+if (getActiveGameModeId() === 'puzzle') {
+  setActiveGameMode('arcade');
+}
 
 // ─── URL Configuration Parsing ──────────────────────────────────
 const urlParams = new URLSearchParams(window.location.search);
@@ -373,6 +428,9 @@ const activeMatchMode = getActiveMatchMode();
 if (activeGameMode.id === 'chill') {
   document.getElementById('dropdown-btn-end-session').classList.remove('hidden');
 }
+
+// Initialize the unified HTML HUD for the active mode
+syncHUDForMode(activeGameMode.id);
 
 const savedState = loadGameState(getCombinedModeId());
 if (savedState) {
@@ -415,10 +473,7 @@ function gameLoop(timestamp) {
     }
     // drawGameOver(); // Handled by DOM overlay now
     
-    // One-time game over handling (hacky: check if we just entered this state)
-    // tailored for this loop pattern: we return early, so just check a flag or run once
-    // We'll rely on the fact that we handle state transitions elsewhere
-    
+    updateGameHUD();
     requestAnimationFrame(gameLoop);
     return;
   }
@@ -463,15 +518,7 @@ function gameLoop(timestamp) {
   }
 
   updateControlsVisibility();
-
-  // Update cursor affordance based on logo hover
-  const mousePos = getMousePos();
-  const logo = getLogoBounds();
-  if (logo && mousePos.x >= logo.x && mousePos.x <= logo.x + logo.w && mousePos.y >= logo.y && mousePos.y <= logo.y + logo.h) {
-    canvas.style.cursor = 'pointer';
-  } else {
-    canvas.style.cursor = '';
-  }
+  updateGameHUD();
 
   requestAnimationFrame(gameLoop);
 }
@@ -491,18 +538,9 @@ function trySelect() {
     return;
   }
 
-  // Logo hit-test: clicking the logo toggles the mode dropdown
-  const logo = getLogoBounds();
-  if (logo &&
-      clickPos.x >= logo.x && clickPos.x <= logo.x + logo.w &&
-      clickPos.y >= logo.y && clickPos.y <= logo.y + logo.h) {
-    toggleModeDropdown();
-    return;
-  } else {
-    // Clicking outside closes it
-    if (!logoDropdown.classList.contains('hidden')) {
-      logoDropdown.classList.add('hidden');
-    }
+  // Close dropdown if clicking on canvas
+  if (!logoDropdown.classList.contains('hidden')) {
+    logoDropdown.classList.add('hidden');
   }
 
   const hex = pixelToHex(clickPos.x, clickPos.y, originX, originY);
@@ -605,6 +643,7 @@ async function switchGameMode(newModeId) {
     btn.classList.toggle('active', btn.dataset.mode === newModeId);
   });
 
+  syncHUDForMode(newModeId);
   resetBoardForNewMode();
 }
 
@@ -625,11 +664,11 @@ function resetBoardForNewMode() {
     resetScore();
     resetChain();
     grid = createGrid();
+    moveCount = 0;
+  }
   activeCols = GRID_COLS;
   activeRows = GRID_ROWS;
   setActiveGridSize(GRID_COLS, GRID_ROWS);
-    moveCount = 0;
-  }
   state = 'idle';
   document.getElementById('modal-gameover').classList.add('hidden');
   requestRedraw();

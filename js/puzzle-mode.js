@@ -134,7 +134,16 @@ export function onStarflowerCreated() {
  */
 export function clearActivePuzzle() {
   activePuzzle = null;
-  showPuzzleHUD(false);
+  // Restore standard HUD layout (score group visible, puzzle group hidden)
+  const scoreGroup = document.getElementById('hud-score-group');
+  const puzzleGroup = document.getElementById('hud-puzzle-group');
+  if (scoreGroup)  scoreGroup.style.display = '';
+  if (puzzleGroup) puzzleGroup.style.display = 'none';
+  // Restore icon buttons hidden by showPuzzleHUD
+  const help = document.getElementById('btn-help');
+  const scores = document.getElementById('scores-wrapper');
+  if (help)   help.style.display = '';
+  if (scores) scores.style.display = '';
   hidePuzzleModals();
 }
 
@@ -218,16 +227,33 @@ export function showPuzzleSelector() {
 // ─── Puzzle HUD ─────────────────────────────────────────────────
 
 function showPuzzleHUD(visible) {
-  let hud = document.getElementById('puzzle-hud');
+  const hud = document.getElementById('game-hud');
   if (!hud) return;
-  hud.style.display = visible ? 'flex' : 'none';
+
+  if (visible) {
+    // Switch the unified HUD to puzzle layout
+    hud.dataset.mode = 'puzzle';
+    const scoreGroup = document.getElementById('hud-score-group');
+    const puzzleGroup = document.getElementById('hud-puzzle-group');
+    if (scoreGroup)  scoreGroup.style.display = 'none';
+    if (puzzleGroup) puzzleGroup.style.display = '';
+
+    const modeEl = document.getElementById('game-hud-mode');
+    if (modeEl) modeEl.textContent = '🧩 Puzzle';
+  }
+
+  // Hide standalone icon buttons when puzzle HUD is showing (they overlap)
+  const help = document.getElementById('btn-help');
+  const scores = document.getElementById('scores-wrapper');
+  if (help)   help.style.display   = visible ? 'none' : '';
+  if (scores) scores.style.display = visible ? 'none' : '';
 }
 
 function updatePuzzleHUD() {
   if (!activePuzzle) return;
 
   const movesLeftEl = document.getElementById('puzzle-moves-left');
-  const goalEl      = document.getElementById('puzzle-goal-text');
+  const subtitleEl  = document.getElementById('game-hud-subtitle');
   const parEl       = document.getElementById('puzzle-par-text');
 
   const movesLeft = activePuzzle.moveLimit - movesUsed;
@@ -237,8 +263,8 @@ function updatePuzzleHUD() {
                             : movesLeft <= 6 ? '#ffaa30'
                             : '#d0d0d8';
   }
-  if (goalEl)  goalEl.textContent  = describeGoal(activePuzzle.goal);
-  if (parEl)   parEl.textContent   = `par ${activePuzzle.par}`;
+  if (subtitleEl) subtitleEl.textContent = describeGoal(activePuzzle.goal);
+  if (parEl)      parEl.textContent      = `par ${activePuzzle.par}`;
 }
 
 function updateGoalProgress(progressText) {
