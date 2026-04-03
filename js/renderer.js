@@ -140,6 +140,10 @@ export function setActiveGridSize(cols, rows) {
   activeGridCols = cols;
   activeGridRows = rows;
   recalcOrigin();
+  // Update the canvas transform to match the new boardScale so the clear
+  // rect covers the full canvas and no stale pixels from a larger grid remain.
+  const dpr = window.devicePixelRatio || 1;
+  ctx.setTransform(dpr * boardScale, 0, 0, dpr * boardScale, 0, 0);
   requestRedraw();
 }
 
