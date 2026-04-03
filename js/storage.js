@@ -121,11 +121,14 @@ export function getPuzzleProgress(puzzleId) {
  * @param {{ stars: number, movesUsed: number }} result
  */
 export function savePuzzleProgress(puzzleId, result) {
-  const existing = getPuzzleProgress(puzzleId) ?? { stars: 0, bestMoves: null, solved: false };
+  const existing = getPuzzleProgress(puzzleId) ?? { stars: 0, bestMoves: null, bestScore: 0, solved: false };
   const updated = {
-    stars:     Math.max(existing.stars, result.stars),
-    bestMoves: existing.bestMoves === null ? result.movesUsed : Math.min(existing.bestMoves, result.movesUsed),
-    solved:    true,
+    stars:     Math.max(existing.stars, result.stars ?? 0),
+    bestMoves: result.movesUsed != null
+      ? (existing.bestMoves === null ? result.movesUsed : Math.min(existing.bestMoves, result.movesUsed))
+      : existing.bestMoves,
+    bestScore: Math.max(existing.bestScore ?? 0, result.score ?? 0),
+    solved:    existing.solved || (result.stars != null && result.stars > 0),
     lastPlayedAt: Date.now(),
   };
   try {

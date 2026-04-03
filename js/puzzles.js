@@ -108,7 +108,7 @@ export function evaluateGoal(goal, grid, stats, cols, rows) {
       let remaining = 0;
       for (let c = 0; c < cols; c++)
         for (let r = 0; r < rows; r++)
-          if (grid[c][r] && grid[c][r].colorIndex === goal.colorIndex && !grid[c][r].special)
+          if (grid[c]?.[r] && grid[c][r].colorIndex === goal.colorIndex && !grid[c][r].special)
             remaining++;
       return {
         met: remaining === 0,

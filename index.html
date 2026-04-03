@@ -19,7 +19,10 @@
        background: linear-gradient(to bottom, rgba(20,16,30,0.97), rgba(20,16,30,0));
        padding: 8px 16px 28px; padding-top: 60px; flex-direction: column; gap: 6px; pointer-events: none;">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <div style="font-size:0.75rem; font-weight:700; letter-spacing:2px; color:#8040c0; text-transform:uppercase;">🧩 Puzzle</div>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <div style="font-size:0.75rem; font-weight:700; letter-spacing:2px; color:#8040c0; text-transform:uppercase;">🧩 Puzzle</div>
+        <button id="btn-puzzle-restart" style="pointer-events:auto; background:rgba(128,64,192,0.3); border:1px solid rgba(128,64,192,0.5); color:#d0c0f0; font-size:0.7rem; font-weight:700; letter-spacing:1px; text-transform:uppercase; padding:4px 10px; border-radius:6px; cursor:pointer;">↻ Restart</button>
+      </div>
       <div style="display:flex; gap:12px; align-items:center;">
         <span style="font-size:0.75rem; color:#606070;" id="puzzle-par-text">par 6</span>
         <span style="font-size:0.85rem; color:#a0a0b0;">Moves left:</span>
@@ -198,9 +201,23 @@
 
   <!-- Puzzle Failed Modal -->
   <div id="modal-puzzle-failed" class="modal hidden">
-    <div class="modal-content text-center">
+    <div class="modal-content text-center" style="position:relative;">
+      <button id="btn-puzzle-failed-dismiss" style="position:absolute; top:8px; right:12px; background:none; border:none; color:#606070; font-size:1.4rem; cursor:pointer; line-height:1; padding:4px;" aria-label="Close">&times;</button>
       <h2 id="puzzle-failed-title" style="color: #ff9030; border-color: #ff9030;">Out of Moves</h2>
-      <p id="puzzle-failed-msg" style="color: #a0a0b0; margin-bottom: 16px;"></p>
+      <p id="puzzle-failed-msg" style="color: #a0a0b0; margin-bottom: 12px;"></p>
+      <div id="puzzle-failed-score-row" style="display:flex; justify-content:center; gap:24px; margin-bottom:4px;">
+        <div style="text-align:center;">
+          <div style="font-size:0.65rem; text-transform:uppercase; letter-spacing:1.5px; color:#707080;">Score</div>
+          <div id="puzzle-failed-score" style="font-size:1.4rem; font-weight:700; color:#d0d0d8;">0</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="font-size:0.65rem; text-transform:uppercase; letter-spacing:1.5px; color:#707080;">Best</div>
+          <div id="puzzle-failed-best" style="font-size:1.4rem; font-weight:700; color:#b070f0;">0</div>
+        </div>
+      </div>
+      <div id="puzzle-failed-new-record" style="display:none; margin-bottom:12px; font-size:0.85rem; font-weight:700; color:#ffd740; text-shadow:0 0 12px rgba(255,215,64,0.5); letter-spacing:1px;">
+        NEW HIGH SCORE!
+      </div>
       <div style="display: flex; gap: 12px; justify-content: center;">
         <button id="btn-puzzle-failed-retry" class="start-btn" style="background: #ff9030; flex: 1;">Try Again</button>
         <button id="btn-puzzle-failed-menu"  class="start-btn" style="background: #333; flex: 1;">Puzzle Menu</button>

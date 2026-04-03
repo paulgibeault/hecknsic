@@ -19,6 +19,8 @@ import {
   computeStars,
 } from './puzzles.js';
 import { getNeighbors } from './hex-math.js';
+import { findMatchesForMode } from './board.js';
+import { detectStarflowers, detectBlackPearls, detectGrandPoobahs } from './specials.js';
 
 import {
   getPuzzleProgress,
@@ -99,7 +101,7 @@ export function onPuzzleMove(grid, score, chainLevel) {
   if (result.met && !goalMet) {
     goalMet = true;
     const stars = computeStars(activePuzzle, movesUsed, maxChain);
-    savePuzzleProgress(activePuzzle.id, { stars, movesUsed });
+    savePuzzleProgress(activePuzzle.id, { stars, movesUsed, score: stats.score ?? 0 });
     setTimeout(() => showPuzzleResult(stars), 600);
     return;
   }
@@ -291,38 +293,114 @@ function showPuzzleFailed(reason) {
       `You used all ${activePuzzle.moveLimit} moves. ${describeGoal(activePuzzle.goal)} — so close!`;
   }
 
+  // Score tracking
+  const currentScore = stats.score ?? 0;
+  const prevProgress = getPuzzleProgress(activePuzzle.id);
+  const prevBest = prevProgress?.bestScore ?? 0;
+  const isNewRecord = currentScore > 0 && currentScore > prevBest;
+
+  // Save score (even on failure — tracks best score across all attempts)
+  savePuzzleProgress(activePuzzle.id, { score: currentScore });
+
+  // Populate score UI
+  document.getElementById('puzzle-failed-score').textContent = currentScore.toLocaleString();
+  document.getElementById('puzzle-failed-best').textContent =
+    Math.max(currentScore, prevBest).toLocaleString();
+
+  const recordEl = document.getElementById('puzzle-failed-new-record');
+  if (recordEl) recordEl.style.display = isNewRecord ? 'block' : 'none';
+
   document.getElementById('modal-puzzle-failed').classList.remove('hidden');
 
   if (_onPuzzleEnd) _onPuzzleEnd('failed');
 }
 
 /**
- * Check if any valid 3-hex cluster exists where all 3 hexes have pieces.
- * Also checks for starflower rings and black pearl Y-shapes.
+ * Check if any valid move (cluster rotation) would produce a match or special formation.
+ * Simulates CW and CCW rotations of every selectable cluster, ring, and Y-shape,
+ * then checks if any rotation produces matches, starflowers, black pearls, or grand poobahs.
  */
 function hasValidMoves(grid, cols, rows) {
-  for (let c = 0; c < cols; c++) {
-    for (let r = 0; r < rows; r++) {
-      if (!grid[c]?.[r]) continue;
+  function rotateCW3(cells) {
+    const s = { ci: cells[0].colorIndex, sp: cells[0].special, bt: cells[0].bombTimer };
+    cells[0].colorIndex = cells[2].colorIndex; cells[0].special = cells[2].special; cells[0].bombTimer = cells[2].bombTimer;
+    cells[2].colorIndex = cells[1].colorIndex; cells[2].special = cells[1].special; cells[2].bombTimer = cells[1].bombTimer;
+    cells[1].colorIndex = s.ci; cells[1].special = s.sp; cells[1].bombTimer = s.bt;
+  }
+  function rotateCCW3(cells) {
+    const s = { ci: cells[0].colorIndex, sp: cells[0].special, bt: cells[0].bombTimer };
+    cells[0].colorIndex = cells[1].colorIndex; cells[0].special = cells[1].special; cells[0].bombTimer = cells[1].bombTimer;
+    cells[1].colorIndex = cells[2].colorIndex; cells[1].special = cells[2].special; cells[1].bombTimer = cells[2].bombTimer;
+    cells[2].colorIndex = s.ci; cells[2].special = s.sp; cells[2].bombTimer = s.bt;
+  }
+  function rotateCW6(cells) {
+    const s = { ci: cells[5].colorIndex, sp: cells[5].special, bt: cells[5].bombTimer };
+    for (let i = 5; i > 0; i--) {
+      cells[i].colorIndex = cells[i-1].colorIndex; cells[i].special = cells[i-1].special; cells[i].bombTimer = cells[i-1].bombTimer;
+    }
+    cells[0].colorIndex = s.ci; cells[0].special = s.sp; cells[0].bombTimer = s.bt;
+  }
+  function rotateCCW6(cells) {
+    const s = { ci: cells[0].colorIndex, sp: cells[0].special, bt: cells[0].bombTimer };
+    for (let i = 0; i < 5; i++) {
+      cells[i].colorIndex = cells[i+1].colorIndex; cells[i].special = cells[i+1].special; cells[i].bombTimer = cells[i+1].bombTimer;
+    }
+    cells[5].colorIndex = s.ci; cells[5].special = s.sp; cells[5].bombTimer = s.bt;
+  }
 
-      // Starflower ring selection — if any starflower has all 6 neighbors in-bounds with pieces
-      if (grid[c][r].special === 'starflower') {
-        const nbrs = getNeighbors(c, r);
-        if (nbrs.every(n => n.col >= 0 && n.col < cols && n.row >= 0 && n.row < rows && grid[n.col]?.[n.row])) {
-          return true;
+  // Try a rotation, check for matches AND special formations, then undo
+  function tryRotation(rotateFn, undoFn, cells) {
+    rotateFn(cells);
+    const productive =
+      findMatchesForMode(grid, cols, rows).size > 0 ||
+      detectStarflowers(grid).length > 0 ||
+      detectBlackPearls(grid).length > 0 ||
+      detectGrandPoobahs(grid).length > 0;
+    undoFn(cells);
+    return productive;
+  }
+
+  function inBounds(n) {
+    return n.col >= 0 && n.col < cols && n.row >= 0 && n.row < rows;
+  }
+
+  for (let c = 0; c < cols; c++) {
+    if (!grid[c]) continue;
+    for (let r = 0; r < rows; r++) {
+      const cell = grid[c][r];
+      if (!cell) continue;
+
+      const nbrs = getNeighbors(c, r);
+
+      // Starflower ring: try rotating the 6-neighbor ring
+      if (cell.special === 'starflower') {
+        if (nbrs.every(n => inBounds(n) && grid[n.col]?.[n.row])) {
+          const cells = nbrs.map(n => grid[n.col][n.row]);
+          if (tryRotation(rotateCW6, rotateCCW6, cells)) return true;
+          if (tryRotation(rotateCCW6, rotateCW6, cells)) return true;
         }
       }
 
-      // Normal 3-hex cluster: check each pair of adjacent neighbors
-      const nbrs = getNeighbors(c, r);
+      // Black pearl Y-shape: try rotating the 3 alternating neighbors
+      if (cell.special === 'blackpearl') {
+        const yHexes = [nbrs[0], nbrs[2], nbrs[4]];
+        if (yHexes.every(n => inBounds(n) && grid[n.col]?.[n.row])) {
+          const cells = yHexes.map(n => grid[n.col][n.row]);
+          if (tryRotation(rotateCW3, rotateCCW3, cells)) return true;
+          if (tryRotation(rotateCCW3, rotateCW3, cells)) return true;
+        }
+      }
+
+      // Normal 3-hex cluster
       for (let i = 0; i < 6; i++) {
         const b = nbrs[i];
         const d = nbrs[(i + 1) % 6];
-        if (b.col >= 0 && b.col < cols && b.row >= 0 && b.row < rows &&
-            d.col >= 0 && d.col < cols && d.row >= 0 && d.row < rows &&
-            grid[b.col]?.[b.row] && grid[d.col]?.[d.row]) {
-          return true;
-        }
+        if (!inBounds(b) || !inBounds(d)) continue;
+        if (!grid[b.col]?.[b.row] || !grid[d.col]?.[d.row]) continue;
+
+        const cells = [cell, grid[b.col][b.row], grid[d.col][d.row]];
+        if (tryRotation(rotateCW3, rotateCCW3, cells)) return true;
+        if (tryRotation(rotateCCW3, rotateCW3, cells)) return true;
       }
     }
   }
@@ -337,7 +415,7 @@ function hidePuzzleModals() {
 
 // ─── Modal button wiring ────────────────────────────────────────
 
-export function initPuzzleModeUI(getGridFn) {
+export function initPuzzleModeUI(getGridFn, isProcessingFn = () => false) {
   // Init puzzle editor (pass grid capture + start callbacks)
   initPuzzleEditorUI();
   registerEditorCallbacks(getGridFn, startPuzzle);
@@ -352,6 +430,11 @@ export function initPuzzleModeUI(getGridFn) {
   document.getElementById('btn-open-puzzle-editor')?.addEventListener('click', () => {
     document.getElementById('modal-puzzle-select').classList.add('hidden');
     showPuzzleEditor();
+  });
+
+  // Restart puzzle (always-visible HUD button)
+  document.getElementById('btn-puzzle-restart')?.addEventListener('click', () => {
+    if (activePuzzle && !isProcessingFn()) startPuzzle(activePuzzle.id);
   });
 
   // Close puzzle selector
@@ -392,5 +475,16 @@ export function initPuzzleModeUI(getGridFn) {
     document.getElementById('modal-puzzle-failed').classList.add('hidden');
     clearActivePuzzle();
     showPuzzleSelector();
+  });
+
+  // Failed modal: dismiss (X button or click outside)
+  const failedModal = document.getElementById('modal-puzzle-failed');
+  const dismissFailed = () => {
+    failedModal.classList.add('hidden');
+    showPuzzleHUD(true);
+  };
+  document.getElementById('btn-puzzle-failed-dismiss')?.addEventListener('click', dismissFailed);
+  failedModal?.addEventListener('click', (e) => {
+    if (e.target === failedModal) dismissFailed();
   });
 }

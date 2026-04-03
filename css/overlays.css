@@ -337,6 +337,15 @@
   font-variant-numeric: tabular-nums;
 }
 
+#btn-puzzle-restart:hover {
+  background: rgba(128, 64, 192, 0.5);
+  border-color: rgba(176, 112, 240, 0.7);
+  color: #fff;
+}
+#btn-puzzle-restart:active {
+  transform: scale(0.95);
+}
+
 /* Sector header in puzzle selector */
 .puzzle-sector-header {
   font-size: 0.7rem;
@@ -418,6 +427,10 @@
   0%   { transform: scale(0.4); opacity: 0; }
   80%  { transform: scale(1.1); }
   100% { transform: scale(1);   opacity: 1; }
+}
+
+#btn-puzzle-failed-dismiss:hover {
+  color: #a0a0b0;
 }
 
 /* Failed modal orange accent */
