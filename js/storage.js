@@ -141,7 +141,7 @@ export function savePuzzleProgress(puzzleId, result) {
 /**
  * Check if a sector is unlocked (first sector always unlocked; others require prior sector complete).
  * @param {string} sectorId
- * @param {import('./puzzles.js').PUZZLE_SECTORS} sectors
+ * @param {Array<{id: string, puzzles: Array<{id: string}>}>} sectors — the full PUZZLE_SECTORS array
  */
 export function isSectorUnlocked(sectorId, sectors) {
   const idx = sectors.findIndex(s => s.id === sectorId);

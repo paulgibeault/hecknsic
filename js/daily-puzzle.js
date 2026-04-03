@@ -86,12 +86,15 @@ export function generateDailyPuzzle(dateStr) {
   // Number of colors: 3 early month, 4 mid, 5 late
   const numColors  = sizeIdx === 0 ? 3 : sizeIdx === 1 ? 4 : 5;
 
-  // Generate board with seeded RNG
+  // Generate board with seeded RNG.
+  // Use a Map keyed by "c,r" for O(1) neighbour lookup instead of O(n) Array.find.
   const gridData = [];
+  const gridMap  = new Map();
   for (let c = 0; c < cols; c++) {
     for (let r = 0; r < rows; r++) {
-      const colorIndex = Math.floor(rng() * numColors);
-      gridData.push({ c, r, colorIndex, special: null });
+      const cell = { c, r, colorIndex: Math.floor(rng() * numColors), special: null };
+      gridData.push(cell);
+      gridMap.set(`${c},${r}`, cell);
     }
   }
 
@@ -100,9 +103,9 @@ export function generateDailyPuzzle(dateStr) {
     for (const cell of gridData) {
       const { c, r } = cell;
       const neighbors = [
-        gridData.find(x => x.c === c+1 && x.r === r),
-        gridData.find(x => x.c === c   && x.r === r+1),
-        gridData.find(x => x.c === c+1 && x.r === r-1),
+        gridMap.get(`${c+1},${r}`),
+        gridMap.get(`${c},${r+1}`),
+        gridMap.get(`${c+1},${r-1}`),
       ];
       for (const n of neighbors) {
         if (n && n.colorIndex === cell.colorIndex) {

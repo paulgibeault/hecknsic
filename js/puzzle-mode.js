@@ -382,16 +382,21 @@ function hasValidMoves(grid, cols, rows) {
     cells[5].colorIndex = s.ci; cells[5].special = s.sp; cells[5].bombTimer = s.bt;
   }
 
-  // Try a rotation, check for matches AND special formations, then undo
+  // Try a rotation, check for matches AND special formations, then undo.
+  // try/finally guarantees undo runs even if a detection function throws,
+  // so the live grid is never left in a partially-rotated state.
   function tryRotation(rotateFn, undoFn, cells) {
     rotateFn(cells);
-    const productive =
-      findMatchesForMode(grid, cols, rows).size > 0 ||
-      detectStarflowers(grid).length > 0 ||
-      detectBlackPearls(grid).length > 0 ||
-      detectGrandPoobahs(grid).length > 0;
-    undoFn(cells);
-    return productive;
+    try {
+      return (
+        findMatchesForMode(grid, cols, rows).size > 0 ||
+        detectStarflowers(grid).length > 0 ||
+        detectBlackPearls(grid).length > 0 ||
+        detectGrandPoobahs(grid).length > 0
+      );
+    } finally {
+      undoFn(cells);
+    }
   }
 
   function inBounds(n) {
@@ -425,12 +430,17 @@ function hasValidMoves(grid, cols, rows) {
         }
       }
 
-      // Normal 3-hex cluster
+      // Normal 3-hex cluster — each triangle (center, b, d) is shared by 3 cells.
+      // Only test when c is the canonical "lowest" cell in the cluster to avoid
+      // testing each triangle 3× (once per vertex).
       for (let i = 0; i < 6; i++) {
         const b = nbrs[i];
         const d = nbrs[(i + 1) % 6];
         if (!inBounds(b) || !inBounds(d)) continue;
         if (!grid[b.col]?.[b.row] || !grid[d.col]?.[d.row]) continue;
+        // Canonical check: only process this triangle when c is the top-left-most vertex
+        if (b.col < c || (b.col === c && b.row < r)) continue;
+        if (d.col < c || (d.col === c && d.row < r)) continue;
 
         const cells = [cell, grid[b.col][b.row], grid[d.col][d.row]];
         if (tryRotation(rotateCW3, rotateCCW3, cells)) return true;

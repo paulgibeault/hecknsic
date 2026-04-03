@@ -85,7 +85,7 @@ export function isProcessing() {
 window.debug = {
   getGrid: () => grid,
   getState: () => state,
-  runPostRotation: () => postRotationCheck(),
+  runPostRotation: () => postRotationCheck(boardGeneration),
 };
 
 const canvas = document.getElementById('game');
@@ -180,10 +180,23 @@ document.getElementById('btn-close-scores').addEventListener('click', (e) => {
   lastTime = performance.now();
 });
 
+// Shared guard: shake a button and bail if board is mid-animation.
+// Prevents restart clicks during cascade/rotation feeling like they're ignored.
+function guardedAction(btn, action) {
+  if (isProcessing()) {
+    btn.classList.remove('shake-animation');
+    void btn.offsetWidth; // force reflow to restart animation
+    btn.classList.add('shake-animation');
+    setTimeout(() => btn.classList.remove('shake-animation'), 400);
+    return;
+  }
+  action();
+}
+
 // Game Over Modal bindings
 document.getElementById('btn-newgame').addEventListener('click', (e) => {
   e.stopPropagation();
-  resetGame();
+  guardedAction(e.currentTarget, resetGame);
 });
 
 // Dropdown Mode Selector bindings
@@ -297,14 +310,16 @@ document.getElementById('btn-continue-gamewin').addEventListener('click', (e) =>
 
 document.getElementById('btn-newgame-gamewin').addEventListener('click', (e) => {
   e.stopPropagation();
-  resetGame();
+  guardedAction(e.currentTarget, resetGame);
 });
 
 // Over-Achiever Modal binding
 document.getElementById('btn-newgame-oa').addEventListener('click', (e) => {
   e.stopPropagation();
-  document.getElementById('modal-over-achiever').classList.add('hidden');
-  resetGame();
+  guardedAction(e.currentTarget, () => {
+    document.getElementById('modal-over-achiever').classList.add('hidden');
+    resetGame();
+  });
 });
 
 document.getElementById('btn-confirm-end').addEventListener('click', (e) => {
@@ -1203,8 +1218,11 @@ async function handleOverAchiever() {
 }
 
 /** Shared post-rotation logic: tick bombs, cascade or detect specials.
- *  @param {number} gen — boardGeneration at call time; bail out if it changes. */
-async function postRotationCheck(gen = boardGeneration) {
+ *  @param {number} gen — boardGeneration at call time; bail out if it changes.
+ *                        Always pass explicitly — do not rely on a default capture. */
+async function postRotationCheck(gen) {
+  // Guard: callers must pass gen so stale async chains bail correctly.
+  if (gen === undefined) gen = boardGeneration;
   moveCount++;
 
   const mode = getActiveGameMode();
