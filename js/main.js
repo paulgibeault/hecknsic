@@ -20,10 +20,12 @@ import {
   applyGravity, fillEmpty,
 } from './board.js';
 import {
-  initRenderer, resize, drawFrame, getOrigin,
+  initRenderer, resize, drawFrame, getOrigin, getBoardScale,
   setCellOverride, clearCellOverride, clearAllOverrides,
   addFloatingPiece, removeFloatingPiece,
   spawnCreationParticles, spawnScorePopup,
+  spawnColorNukeParticles, spawnExplosionParticles,
+  spawnRingShockwave, flashScreenOverlay,
   getLogoBounds, requestRedraw, clearDirty, getIsDirty, hasActiveRendererAnimations
 } from './renderer.js';
 import {
@@ -34,8 +36,8 @@ import {
 import { hexToPixel, getNeighbors, pixelToHex, findClusterAtPixel } from './hex-math.js';
 import {
   initInput, getHoverCluster, consumeAction, getLastClickPos, getMousePos, triggerAction,
-  setKeyBindings, clearPendingAction,
-} from './input.js';
+  setKeyBindings, clearPendingAction, setClusterCenterPx,
+} from './input.js?v=3';
 import { tween, updateTweens, easeOutCubic, easeOutBounce, hasActiveTweens, linear } from './tween.js';
 import {
   resetScore, awardMatch, advanceChain, resetChain,
@@ -44,8 +46,8 @@ import {
 } from './score.js';
 import {
   detectStarflowers, detectStarflowersAtCleared,
-  detectBlackPearls, detectMultiplierClusters,
-  tickBombs, countBombs,
+  detectBlackPearls, detectMultiplierClusters, detectGrandPoobahs,
+  detectGrandPoobahRing, tickBombs, countBombs,
 } from './specials.js';
 import {
   saveGameState, loadGameState, clearGameState,
@@ -117,6 +119,24 @@ document.getElementById('btn-cw').addEventListener('click', (e) => {
   e.stopPropagation();
   triggerAction('rotateCCW');
 });
+
+// Handedness toggle — keeps buttons in the comfortable corner for each player
+const toggleLeft  = document.getElementById('hand-toggle-left');
+const toggleRight = document.getElementById('hand-toggle-right');
+
+function applyHandedness(leftHanded) {
+  controlsEl.classList.toggle('left-handed', leftHanded);
+  toggleLeft.classList.toggle('hidden', leftHanded);   // left pill: shown when NOT left-handed
+  toggleRight.classList.toggle('hidden', !leftHanded); // right pill: shown when left-handed
+  localStorage.setItem('hecknsic_left_handed', leftHanded ? '1' : '0');
+}
+
+// Restore saved preference
+applyHandedness(localStorage.getItem('hecknsic_left_handed') === '1');
+
+toggleLeft.addEventListener('click', (e) => { e.stopPropagation(); applyHandedness(true); });
+toggleRight.addEventListener('click', (e) => { e.stopPropagation(); applyHandedness(false); });
+
 
 // Help Modal bindings
 const nonGameUI = ['btn-help', 'modal-help', 'btn-close-help'];
@@ -247,6 +267,27 @@ document.getElementById('btn-cancel-end').addEventListener('click', (e) => {
   // allow board interactions again
 });
 
+// Game Win Modal bindings
+document.getElementById('btn-continue-gamewin').addEventListener('click', (e) => {
+  e.stopPropagation();
+  document.getElementById('modal-gamewin').classList.add('hidden');
+  state = 'idle';
+  isPaused = false;
+  requestRedraw();
+});
+
+document.getElementById('btn-newgame-gamewin').addEventListener('click', (e) => {
+  e.stopPropagation();
+  resetGame();
+});
+
+// Over-Achiever Modal binding
+document.getElementById('btn-newgame-oa').addEventListener('click', (e) => {
+  e.stopPropagation();
+  document.getElementById('modal-over-achiever').classList.add('hidden');
+  resetGame();
+});
+
 document.getElementById('btn-confirm-end').addEventListener('click', (e) => {
   e.stopPropagation();
   endSessionModal.classList.add('hidden');
@@ -273,10 +314,11 @@ function showHighScores() {
 
   list.innerHTML = scores.map((s, i) => {
     const date = new Date(s.date).toLocaleDateString();
+    const trophy = s.achievement ? ' 🏆' : '';
     return `
       <li>
         <span class="rank">#${i + 1}</span>
-        <span class="score">${s.score.toLocaleString()}</span>
+        <span class="score">${s.score.toLocaleString()}${trophy}</span>
         <span class="date">${date}</span>
       </li>
     `;
@@ -430,6 +472,7 @@ function trySelect() {
     selectedCluster = null;
     flowerCenter = null;
     pearlCenter = null;
+    setClusterCenterPx(null, null);
     return;
   }
 
@@ -469,6 +512,9 @@ function trySelect() {
         flowerCenter = null;
         selectedCluster = [{ col: hex.col, row: hex.row }, ...yHexes];
         state = 'selected';
+        // Pearl center is the center hex pixel
+        const cp = hexToPixel(hex.col, hex.row, originX, originY);
+        setClusterCenterPx(cp.x, cp.y);
         return;
       }
     }
@@ -487,6 +533,9 @@ function trySelect() {
       pearlCenter = null;
       selectedCluster = [{ col: hex.col, row: hex.row }, ...nbrs];
       state = 'selected';
+      // Flower center pixel
+      const cp = hexToPixel(hex.col, hex.row, originX, originY);
+      setClusterCenterPx(cp.x, cp.y);
       return;
     }
   }
@@ -502,10 +551,17 @@ function trySelect() {
     pearlCenter = null;
     selectedCluster = cluster;
     state = 'selected';
+    // Compute centroid of the 3 cluster hexes
+    const px = cluster.map(h => hexToPixel(h.col, h.row, originX, originY));
+    setClusterCenterPx(
+      (px[0].x + px[1].x + px[2].x) / 3,
+      (px[0].y + px[1].y + px[2].y) / 3
+    );
   } else {
     selectedCluster = null;
     flowerCenter = null;
     pearlCenter = null;
+    setClusterCenterPx(null, null);
   }
 }
 
@@ -572,7 +628,7 @@ async function animateRotation(clockwise) {
   // Starflower ring = 6 steps for full rotation
   // Cluster / Black Pearl (Y) = 3 steps for full rotation
   let maxSteps = 3;
-  if (flowerCenter) maxSteps = 1;
+  if (flowerCenter || pearlCenter) maxSteps = 1;
 
   for (let step = 0; step < maxSteps; step++) {
     // 1. Animate one step
@@ -593,10 +649,11 @@ async function animateRotation(clockwise) {
     const matches = findMatchesForMode(grid, GRID_COLS, GRID_ROWS);
     const sfResults = detectStarflowers(grid);
     const bpResults = detectBlackPearls(grid);
+    const gpResults = detectGrandPoobahs(grid);
 
     // If we found anything significant, proceed to post-rotation logic (cascade/etc)
     // and STOP rotating.
-    if (matches.size > 0 || sfResults.length > 0 || bpResults.length > 0) {
+    if (matches.size > 0 || sfResults.length > 0 || bpResults.length > 0 || gpResults.length > 0) {
       await postRotationCheck();
       return; 
     }
@@ -852,7 +909,9 @@ async function animateBlackPearlCreation(bpResults) {
 
     // Clear the absorbed starflowers
     for (const pos of bp.ring) {
-      grid[pos.col][pos.row] = null;
+      if (grid[pos.col][pos.row] && grid[pos.col][pos.row].special !== 'grandpoobah') {
+        grid[pos.col][pos.row] = null;
+      }
     }
     clearAllOverrides();
 
@@ -916,6 +975,166 @@ async function animateBlackPearlCreation(bpResults) {
   }
 }
 
+async function animateGrandPoobahCreation(gpResults) {
+  const { originX, originY } = getOrigin();
+  let queuedGrandPoobahs = 0;
+
+  for (const gp of gpResults) {
+    const centerPx = hexToPixel(gp.center.col, gp.center.row, originX, originY);
+
+    if (gp.centerAlreadySpecial) {
+      queuedGrandPoobahs++;
+    } else {
+      const centerCell = grid[gp.center.col][gp.center.row];
+      if (centerCell) {
+        centerCell.colorIndex = -3;
+        centerCell.special = 'grandpoobah';
+        delete centerCell.bombTimer;
+      }
+    }
+
+    // Phase 1: Ring implodes
+    await tween(400, t => {
+      for (const pos of gp.ring) {
+        if (grid[pos.col]?.[pos.row]) {
+          const px = hexToPixel(pos.col, pos.row, originX, originY);
+          const dx = (centerPx.x - px.x) * t * 0.4;
+          const dy = (centerPx.y - px.y) * t * 0.4;
+          setCellOverride(pos.col, pos.row, {
+            scale: 1 - t * 0.6,
+            alpha: 1 - t * 0.7,
+            offsetX: dx,
+            offsetY: dy,
+          });
+        }
+      }
+    }, easeOutCubic).promise;
+
+    for (const pos of gp.ring) {
+      if (grid[pos.col][pos.row] && grid[pos.col][pos.row].special !== 'grandpoobah') {
+        grid[pos.col][pos.row] = null;
+      }
+    }
+    clearAllOverrides();
+
+    // Phase 2: Majestic particle burst
+    spawnCreationParticles(centerPx.x, centerPx.y, 40);
+
+    // Phase 3: Pulse
+    await tween(800, t => {
+      let scale;
+      if (t < 0.2) {
+        scale = 1 + 0.8 * (t / 0.2);
+      } else {
+        const settleT = (t - 0.2) / 0.8;
+        scale = 1.8 - 0.8 * settleT;
+      }
+      setCellOverride(gp.center.col, gp.center.row, { scale });
+    }, easeOutCubic).promise;
+
+    clearAllOverrides();
+  }
+
+  // Gravity and refill
+  const fallMap = computeFallDistances();
+  if (fallMap.length > 0) {
+    const maxDist = Math.max(...fallMap.map(f => f.dist));
+    const fallDuration = GRAVITY_MS * maxDist;
+
+    const fallers = fallMap.map(f => {
+      const startPx = hexToPixel(f.col, f.fromRow, originX, originY);
+      const endPx = hexToPixel(f.col, f.toRow, originX, originY);
+      setCellOverride(f.col, f.fromRow, { hidden: true });
+      return {
+        fp: addFloatingPiece({
+          x: startPx.x, y: startPx.y,
+          colorIndex: f.colorIndex,
+          special: f.special,
+          bombTimer: f.bombTimer,
+          scale: 1, alpha: 1, shadow: false,
+        }),
+        startY: startPx.y,
+        endY: endPx.y,
+      };
+    });
+
+    await tween(fallDuration, t => {
+      for (const f of fallers) f.fp.y = f.startY + (f.endY - f.startY) * t;
+    }, easeOutBounce).promise;
+
+    for (const f of fallers) removeFloatingPiece(f.fp);
+    clearAllOverrides();
+  }
+
+  applyGravity(grid);
+  const mode = getActiveGameMode();
+  const filled = fillEmpty(grid, undefined, undefined, undefined, mode.hasBombs && bombQueued, { starflowers: 0, blackpearls: 0, grandpoobahs: queuedGrandPoobahs });
+  if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
+
+  handleGameWin();
+}
+
+function handleGameWin() {
+  state = 'gameover';
+  document.getElementById('modal-gamewin').classList.remove('hidden');
+}
+
+async function handleOverAchiever() {
+  state = 'gameover';
+  const combinedId = getCombinedModeId();
+  clearGameState(combinedId);
+  addHighScore(combinedId, getScore(), 'over-achiever');
+
+  document.getElementById('go-oa-score').textContent = getScore().toLocaleString();
+  document.getElementById('go-oa-combo').textContent = `x${getComboCount()}`;
+  document.getElementById('modal-over-achiever').classList.remove('hidden');
+
+  // Board explosion (reuse game-over explosion aesthetic)
+  const { originX, originY } = getOrigin();
+  const floaters = [];
+
+  for (let c = 0; c < GRID_COLS; c++) {
+    for (let r = 0; r < GRID_ROWS; r++) {
+      if (grid[c][r]) {
+        const px = hexToPixel(c, r, originX, originY);
+        const dx = px.x - (originX + (GRID_COLS * 30));
+        const dy = px.y - (originY + (GRID_ROWS * 30));
+        const angle = Math.atan2(dy, dx);
+        const speed = 10 + Math.random() * 20;
+
+        const fp = addFloatingPiece({
+          x: px.x, y: px.y,
+          colorIndex: grid[c][r].colorIndex,
+          special: grid[c][r].special,
+          scale: 1, alpha: 1, shadow: false
+        });
+
+        floaters.push({
+          fp,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          rot: (Math.random() - 0.5) * 0.5
+        });
+
+        grid[c][r] = null;
+      }
+    }
+  }
+
+  await tween(1500, t => {
+    for (const item of floaters) {
+      item.fp.x += item.vx;
+      item.fp.y += item.vy;
+      item.fp.vy += 0.5;
+      item.fp.alpha = 1 - t;
+    }
+  }, easeOutCubic).promise;
+
+  for (const item of floaters) {
+    removeFloatingPiece(item.fp);
+  }
+}
+
 /** Shared post-rotation logic: tick bombs, cascade or detect specials */
 async function postRotationCheck() {
   moveCount++;
@@ -961,6 +1180,23 @@ async function postRotationCheck() {
 
   while (!boardStable) {
     boardStable = true;
+
+    // Check for Grand Poobah Ring (Over-Achiever) before anything else
+    const gpRing = detectGrandPoobahRing(grid);
+    if (gpRing.length > 0) {
+      await handleOverAchiever();
+      return;
+    }
+
+    const gpResults = detectGrandPoobahs(grid);
+    if (gpResults.length > 0) {
+      if (!isFirstStep) { advanceChain(); await delay(100); }
+      isFirstStep = false;
+      state = 'cascading';
+      await animateGrandPoobahCreation(gpResults);
+      boardStable = false;
+      continue;
+    }
 
     const bpResults = detectBlackPearls(grid);
     if (bpResults.length > 0) {
@@ -1196,8 +1432,10 @@ async function animateStarflowerCreation(sfResults) {
   // Clear ring tiles
   console.log('Clearing ring tiles. Count:', allRing.length);
   for (const pos of allRing) {
-    console.log(`Clearing ${pos.col},${pos.row}. Was:`, grid[pos.col][pos.row]);
-    grid[pos.col][pos.row] = null;
+    if (grid[pos.col][pos.row] && grid[pos.col][pos.row].special !== 'grandpoobah') {
+      console.log(`Clearing ${pos.col},${pos.row}. Was:`, grid[pos.col][pos.row]);
+      grid[pos.col][pos.row] = null;
+    }
   }
   clearAllOverrides();
 
@@ -1389,7 +1627,10 @@ async function runCascade(initialMatches) {
     for (const n of nbrs) {
       if (n.col >= 0 && n.col < GRID_COLS && n.row >= 0 && n.row < GRID_ROWS) {
         // Explode neighbors (unless they are indestuctible?)
-        if (grid[n.col][n.row] && grid[n.col][n.row].special !== 'blackpearl') { // Assume pearls are hard
+        if (grid[n.col][n.row] &&
+            grid[n.col][n.row].special !== 'blackpearl' &&
+            grid[n.col][n.row].special !== 'starflower' &&
+            grid[n.col][n.row].special !== 'grandpoobah') { // Trophy tiles are indestructible
              pendingMatches.add(`${n.col},${n.row}`);
         }
       }
@@ -1397,6 +1638,102 @@ async function runCascade(initialMatches) {
   }
 
   const matches = pendingMatches;
+
+  // ── Star match special effects (play BEFORE the flash-and-clear) ─
+  const { originX, originY } = getOrigin();
+
+  if (colorNukeColors.size > 0 && multiplierClusters.length > 0) {
+    // ── Scenario 1: Color Nuke (same-color star cluster) ──────────
+    // Use the first nuke color to pick a representative tile on the board
+    const nukeColor = colorNukeColors.values().next().value;
+    // Find the cluster that triggered the nuke
+    const nukeCluster = multiplierClusters.find(cluster => {
+      const arr = Array.from(cluster);
+      const colors = new Set(arr.map(k => { const [c,r] = k.split(',').map(Number); return grid[c][r]?.colorIndex; }));
+      return colors.size === 1 && colors.has(nukeColor);
+    });
+    if (nukeCluster) {
+      const arr = Array.from(nukeCluster);
+      let sumX = 0, sumY = 0;
+      for (const k of arr) {
+        const [c,r] = k.split(',').map(Number);
+        const px = hexToPixel(c, r, originX, originY);
+        sumX += px.x; sumY += px.y;
+      }
+      const cx = sumX / arr.length, cy = sumY / arr.length;
+      // Color-tinted burst + screen tint + shockwave
+      spawnColorNukeParticles(cx, cy, nukeColor, 50);
+      // Pick RGB from color index for the overlay and shockwave
+      const colorRGBs = [[224,48,48],[232,128,32],[32,128,224],[48,168,64],[128,64,192],[32,176,176]];
+      const [rr,gg,bb] = colorRGBs[nukeColor] || [255,255,255];
+      flashScreenOverlay(rr, gg, bb, 0.18, 35);
+      spawnRingShockwave(cx, cy, 200, rr, gg, bb);
+      spawnRingShockwave(cx, cy, 140, rr, gg, bb);
+      await new Promise(res => setTimeout(res, 250));
+    }
+  } else if (explosionSources.length > 0) {
+    // ── Scenario 2: Explosion (mixed-color star cluster) ──────────
+    let sumX = 0, sumY = 0;
+    for (const k of explosionSources) {
+      const [c,r] = k.split(',').map(Number);
+      const px = hexToPixel(c, r, originX, originY);
+      sumX += px.x; sumY += px.y;
+    }
+    const cx = sumX / explosionSources.length, cy = sumY / explosionSources.length;
+
+    spawnExplosionParticles(cx, cy, 70);
+    flashScreenOverlay(255, 200, 80, 0.20, 30);
+    spawnRingShockwave(cx, cy, 260, 255, 200, 80);
+    spawnRingShockwave(cx, cy, 180, 255, 240, 160);
+
+    // Board-wide ripple shake radiating outward from the explosion center
+    await tween(280, t => {
+      for (let c = 0; c < GRID_COLS; c++) {
+        for (let r = 0; r < GRID_ROWS; r++) {
+          if (!grid[c][r]) continue;
+          const px = hexToPixel(c, r, originX, originY);
+          const dist = Math.hypot(px.x - cx, px.y - cy);
+          const delay = dist / 400; // 0..~1
+          const localT = Math.max(0, Math.min(1, (t - delay) / (1 - delay)));
+          const shake = Math.sin(localT * Math.PI * 3) * 5 * (1 - t);
+          setCellOverride(c, r, { offsetX: shake, offsetY: shake * 0.5 });
+        }
+      }
+      requestRedraw();
+    }, linear).promise;
+    clearAllOverrides();
+  }
+
+  // ── Scenario 3: Bomb + Star nuke — detect and add extra effect ─
+  // Check if any bomb triggered a color nuke (colorPresence already computed)
+  {
+    let bombNukeColor = -1;
+    for (const color in colorPresence) {
+      if (colorPresence[color].hasBomb && colorPresence[color].hasMultiplier) {
+        bombNukeColor = Number(color);
+        break;
+      }
+    }
+    if (bombNukeColor >= 0) {
+      // Find the bomb cell
+      let bombPx = null;
+      for (const key of matches) {
+        const [c,r] = key.split(',').map(Number);
+        if (grid[c][r]?.special === 'bomb' && grid[c][r]?.colorIndex === bombNukeColor) {
+          bombPx = hexToPixel(c, r, originX, originY);
+          break;
+        }
+      }
+      if (bombPx) {
+        // Red danger flash + red-orange burst centered on the bomb
+        flashScreenOverlay(255, 30, 30, 0.28, 40);
+        spawnExplosionParticles(bombPx.x, bombPx.y, 50);
+        spawnRingShockwave(bombPx.x, bombPx.y, 220, 255, 60, 30);
+        spawnRingShockwave(bombPx.x, bombPx.y, 130, 255, 120, 60);
+        await new Promise(res => setTimeout(res, 200));
+      }
+    }
+  }
 
   // ── Flash matched cells ────────────────────────────────────
   await tween(MATCH_FLASH_MS, t => {

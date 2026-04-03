@@ -11,10 +11,19 @@ let mouseX = 0, mouseY = 0;
 let lastClickPos = null;     // {x, y} of last click for flower detection
 let hoverCluster = null;
 let pendingAction = null;  // { type: 'select'|'rotateCW'|'rotateCCW' }
+let clusterCenterPx = null; // {x, y} pixel center of selected cluster (canvas-scaled coords)
 
 export function getHoverCluster() { return hoverCluster; }
 export function getLastClickPos() { return lastClickPos; }
 export function getMousePos() { return { x: mouseX, y: mouseY }; }
+
+/**
+ * Called by main.js whenever a cluster is selected/changed.
+ * x, y are in canvas-scaled coordinates (same space as lastClickPos).
+ */
+export function setClusterCenterPx(x, y) {
+  clusterCenterPx = (x != null && y != null) ? { x, y } : null;
+}
 
 /**
  * Consume and return the next pending action, or null.
@@ -79,17 +88,21 @@ export function initInput(canvas) {
     requestRedraw();
   });
 
-  // Touch
+  // Touch — tap to select, horizontal swipe to rotate
+  const SWIPE_THRESHOLD_PX = 40; // screen pixels (not scaled)
+  let touchStartX = 0, touchStartY = 0;
+
   canvas.addEventListener('touchstart', e => {
     e.preventDefault();
     const touch = e.touches[0];
+    touchStartX = touch.clientX;
+    touchStartY = touch.clientY;
     const rect = canvas.getBoundingClientRect();
     const s = getBoardScale();
     mouseX = (touch.clientX - rect.left) / s;
     mouseY = (touch.clientY - rect.top) / s;
     lastClickPos = { x: mouseX, y: mouseY };
     updateHover();
-    pendingAction = { type: 'select' };
     requestRedraw();
   }, { passive: false });
 
@@ -101,6 +114,38 @@ export function initInput(canvas) {
     mouseX = (touch.clientX - rect.left) / s;
     mouseY = (touch.clientY - rect.top) / s;
     updateHover();
+    requestRedraw();
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', e => {
+    e.preventDefault();
+    const touch = e.changedTouches[0];
+    const dx = touch.clientX - touchStartX;
+    const dy = touch.clientY - touchStartY;
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+
+    if (Math.hypot(dx, dy) >= SWIPE_THRESHOLD_PX) {
+      // Pinwheel: cross product of (finger-pos relative to cluster center) × (swipe direction).
+      // Both vectors in screen pixels. In screen coords (y-down): cross > 0 → CW, cross < 0 → CCW.
+      let clockwise;
+      if (clusterCenterPx) {
+        const rect = canvas.getBoundingClientRect();
+        const s = getBoardScale();
+        const centerScreenX = clusterCenterPx.x * s + rect.left;
+        const centerScreenY = clusterCenterPx.y * s + rect.top;
+        const rx = touchStartX - centerScreenX;
+        const ry = touchStartY - centerScreenY;
+        const cross = rx * dy - ry * dx;
+        clockwise = cross > 0;
+      } else {
+        clockwise = dx > 0;
+      }
+      pendingAction = { type: clockwise ? 'rotateCW' : 'rotateCCW' };
+    } else {
+      // Short movement — treat as tap → select
+      pendingAction = { type: 'select' };
+    }
     requestRedraw();
   }, { passive: false });
 
