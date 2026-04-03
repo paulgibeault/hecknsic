@@ -3,12 +3,15 @@
  */
 
 const GAME_MODES = {
-  arcade: { id: 'arcade', label: 'Arcade', hasBombs: true,  hasGameOver: true },
-  chill:  { id: 'chill',  label: 'Chill',  hasBombs: false, hasGameOver: false },
+  // hasBombs: spawns new bombs during play and ticks existing ones
+  // ticksBombs: ticks existing bombs each move (puzzle mode uses pre-placed bombs, no spawning)
+  arcade: { id: 'arcade', label: 'Arcade', hasBombs: true,  ticksBombs: true,  hasGameOver: true,  isPuzzle: false },
+  chill:  { id: 'chill',  label: 'Chill',  hasBombs: false, ticksBombs: false, hasGameOver: false, isPuzzle: false },
+  puzzle: { id: 'puzzle', label: 'Puzzle', hasBombs: false, ticksBombs: true,  hasGameOver: true,  isPuzzle: true  },
 };
 
+// Line match mode removed — preserved at git tag feature/line-match-mode
 const MATCH_MODES = {
-  line: { id: 'line', label: 'Line', matchMode: 'line' },
   classic: { id: 'classic', label: 'Classic', matchMode: 'classic' },
 };
 

@@ -126,5 +126,23 @@ html, body {
   .controls, .hand-toggle {
     display: none !important;
   }
+
+  /* --ui-scale is set by JS (renderer.js) on resize to match boardScale.
+     Use zoom (not transform) to avoid conflicts with existing transforms. */
+  .edgy-dropdown {
+    zoom: var(--ui-scale, 1);
+  }
+
+  .icon-btn {
+    zoom: 1;
+  }
+
+  #game-hud {
+    zoom: var(--ui-scale, 1);
+  }
+
+  .modal-content {
+    zoom: var(--ui-scale, 1);
+  }
 }
 

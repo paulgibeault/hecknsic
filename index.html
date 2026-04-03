@@ -13,17 +13,45 @@
 </head>
 <body>
   <canvas id="game"></canvas>
-  
-  <!-- Help Button -->
-  <button id="btn-help" class="icon-btn help-btn" aria-label="How to Play" style="right: 20px;">
-    ?
-  </button>
-  
-  <!-- High Score Button -->
-  <div style="position: absolute; right: 70px; top: 20px; text-align: center; z-index: 10;">
-    <button id="btn-scores" class="icon-btn scores-btn" aria-label="High Scores" style="position: relative; right: 0; top: 0;">
-      🏆
-    </button>
+
+  <!-- Game HUD — shared header for all modes -->
+  <div id="game-hud" class="game-hud">
+    <div class="game-hud-bar">
+      <!-- Left: logo + mode info -->
+      <div class="game-hud-left">
+        <img id="game-hud-logo" src="img/logo_header.png" alt="Hecknsic" class="game-hud-logo">
+        <div class="game-hud-meta">
+          <div id="game-hud-mode" class="game-hud-mode">💣 Arcade</div>
+          <div id="game-hud-subtitle" class="game-hud-subtitle"></div>
+        </div>
+      </div>
+      <!-- Right: score (arcade/chill) or moves (puzzle) + action buttons -->
+      <div class="game-hud-right">
+        <!-- Arcade / Chill score -->
+        <div id="hud-score-group" class="game-hud-score">
+          <span class="game-hud-score-label">Score</span>
+          <span id="hud-score-value" class="game-hud-score-value">0</span>
+        </div>
+        <!-- Puzzle: moves + progress -->
+        <div id="hud-puzzle-group" class="game-hud-puzzle-info" style="display:none;">
+          <button id="btn-puzzle-restart" class="game-hud-restart" aria-label="Restart puzzle">↻</button>
+          <div class="game-hud-moves">
+            <span class="game-hud-moves-label">Moves</span>
+            <span id="puzzle-moves-left" class="game-hud-moves-value">10</span>
+          </div>
+          <div class="game-hud-progress">
+            <span id="puzzle-goal-progress" class="game-hud-progress-text"></span>
+            <span id="puzzle-par-text" class="game-hud-par">par 6</span>
+          </div>
+        </div>
+        <!-- High Score Button -->
+        <div id="scores-wrapper" class="scores-wrapper">
+          <button id="btn-scores" class="icon-btn scores-btn" aria-label="High Scores">🏆</button>
+        </div>
+        <!-- Help Button -->
+        <button id="btn-help" class="icon-btn help-btn" aria-label="How to Play">?</button>
+      </div>
+    </div>
   </div>
 
 
@@ -51,17 +79,8 @@
         <button class="dropdown-btn" data-mode="chill">
           <span class="icon">✨</span> Chill
         </button>
-      </div>
-    </div>
-    <div class="dropdown-divider"></div>
-    <div class="dropdown-section">
-      <h4 class="dropdown-header">MATCH MODE</h4>
-      <div class="dropdown-options" id="match-mode-options">
-        <button class="dropdown-btn active" data-match="classic">
-          <span class="icon">⬡</span> Classic
-        </button>
-        <button class="dropdown-btn" data-match="line">
-          <span class="icon">📏</span> Line
+        <button class="dropdown-btn" data-mode="puzzle" id="dropdown-btn-puzzle">
+          <span class="icon">🧩</span> Puzzle
         </button>
       </div>
     </div>
@@ -138,6 +157,151 @@
       </div>
 
       <button id="btn-close-help" class="start-btn">Got it!</button>
+    </div>
+  </div>
+
+  <!-- Puzzle Selector Modal -->
+  <div id="modal-puzzle-select" class="modal hidden">
+    <div class="modal-content" style="max-width: 480px; max-height: 80vh; overflow-y: auto;">
+      <h2 style="color: #b070f0; border-color: #8040c0;">🧩 Puzzle Mode</h2>
+
+      <!-- Daily puzzle row -->
+      <div id="daily-puzzle-row" style="margin-bottom: 16px; padding: 12px; background: rgba(255,215,0,0.05); border: 1px solid rgba(255,215,0,0.2); border-radius: 8px;">
+        <div class="daily-badge">📅 Daily Challenge</div>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <div id="daily-puzzle-name" style="font-weight:600; color:#e0d8a0; margin-bottom:2px;">Today's Puzzle</div>
+            <div id="daily-puzzle-desc" style="font-size:0.75rem; color:#807060;"></div>
+          </div>
+          <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
+            <div id="daily-puzzle-stars" style="font-size:0.85rem; letter-spacing:2px;">☆☆☆</div>
+            <button id="btn-play-daily" class="start-btn" style="margin:0; padding:6px 14px; font-size:0.8rem; width:auto; background:#a08000;">Play</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="puzzle-sector-list">
+        <!-- Populated by puzzle-mode.js -->
+      </div>
+
+      <div style="display:flex; gap:8px; margin-top:12px;">
+        <button id="btn-open-puzzle-editor" class="start-btn" style="background: #333; flex:1; margin:0; padding:10px; font-size:0.85rem;">✏️ Editor</button>
+        <button id="btn-close-puzzle-select" class="start-btn" style="background: #222; flex:1; margin:0; padding:10px; font-size:0.85rem;">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Puzzle Result Modal -->
+  <div id="modal-puzzle-result" class="modal hidden">
+    <div class="modal-content text-center">
+      <h2 id="puzzle-result-title" style="color: #b070f0; border-color: #8040c0;">Puzzle Complete!</h2>
+      <div id="puzzle-result-stars" style="font-size: 2rem; letter-spacing: 4px; margin: 12px 0;">⭐⭐⭐</div>
+      <p id="puzzle-result-msg" style="color: #a0a0b0; margin-bottom: 16px;"></p>
+      <div class="score-summary" id="puzzle-result-stats"></div>
+      <div style="display: flex; gap: 12px; justify-content: center; margin-top: 16px;">
+        <button id="btn-puzzle-retry"  class="start-btn" style="background: #333; flex: 1;">Retry</button>
+        <button id="btn-puzzle-next"   class="start-btn" style="background: #8040c0; flex: 1;">Next →</button>
+      </div>
+      <button id="btn-puzzle-menu" class="start-btn" style="background: #222; margin-top: 8px; width: 100%;">Puzzle Menu</button>
+    </div>
+  </div>
+
+  <!-- Puzzle Failed Modal -->
+  <div id="modal-puzzle-failed" class="modal hidden">
+    <div class="modal-content text-center" style="position:relative;">
+      <button id="btn-puzzle-failed-dismiss" style="position:absolute; top:8px; right:12px; background:none; border:none; color:#606070; font-size:1.4rem; cursor:pointer; line-height:1; padding:4px;" aria-label="Close">&times;</button>
+      <h2 id="puzzle-failed-title" style="color: #ff9030; border-color: #ff9030;">Out of Moves</h2>
+      <p id="puzzle-failed-msg" style="color: #a0a0b0; margin-bottom: 12px;"></p>
+      <div id="puzzle-failed-score-row" style="display:flex; justify-content:center; gap:24px; margin-bottom:4px;">
+        <div style="text-align:center;">
+          <div style="font-size:0.65rem; text-transform:uppercase; letter-spacing:1.5px; color:#707080;">Score</div>
+          <div id="puzzle-failed-score" style="font-size:1.4rem; font-weight:700; color:#d0d0d8;">0</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="font-size:0.65rem; text-transform:uppercase; letter-spacing:1.5px; color:#707080;">Best</div>
+          <div id="puzzle-failed-best" style="font-size:1.4rem; font-weight:700; color:#b070f0;">0</div>
+        </div>
+      </div>
+      <div id="puzzle-failed-new-record" style="display:none; margin-bottom:12px; font-size:0.85rem; font-weight:700; color:#ffd740; text-shadow:0 0 12px rgba(255,215,64,0.5); letter-spacing:1px;">
+        NEW HIGH SCORE!
+      </div>
+      <div style="display: flex; gap: 12px; justify-content: center;">
+        <button id="btn-puzzle-failed-retry" class="start-btn" style="background: #ff9030; flex: 1;">Try Again</button>
+        <button id="btn-puzzle-failed-menu"  class="start-btn" style="background: #333; flex: 1;">Puzzle Menu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Puzzle Editor Modal -->
+  <div id="modal-puzzle-editor" class="modal hidden">
+    <div class="modal-content" style="max-width: 480px;">
+      <h2 style="color: #b070f0; border-color: #8040c0;">✏️ Puzzle Editor</h2>
+
+      <div class="puzzle-editor-row" style="margin-bottom: 12px;">
+        <label>Load code</label>
+        <input id="share-code-input" class="puzzle-editor-input" placeholder="Paste share code here…" style="flex:1;" />
+        <button id="btn-load-share-code" class="start-btn" style="background:#8040c0;margin:0 0 0 8px;padding:8px 12px;width:auto;">Load</button>
+      </div>
+
+      <div class="dropdown-divider" style="margin: 12px 0;"></div>
+
+      <div class="puzzle-editor-row">
+        <label>Name</label>
+        <input id="editor-name" class="puzzle-editor-input" placeholder="Custom Puzzle" />
+      </div>
+      <div class="puzzle-editor-row">
+        <label>Description</label>
+        <input id="editor-desc" class="puzzle-editor-input" placeholder="Optional description" />
+      </div>
+      <div style="display:flex; gap:8px; margin-bottom:8px;">
+        <div class="puzzle-editor-row" style="flex:1; margin:0;">
+          <label style="width:40px;">Cols</label>
+          <input id="editor-cols" class="puzzle-editor-input" type="number" value="9" min="3" max="9" />
+        </div>
+        <div class="puzzle-editor-row" style="flex:1; margin:0;">
+          <label style="width:40px;">Rows</label>
+          <input id="editor-rows" class="puzzle-editor-input" type="number" value="9" min="3" max="9" />
+        </div>
+        <div class="puzzle-editor-row" style="flex:1; margin:0;">
+          <label style="width:50px;">Moves</label>
+          <input id="editor-moves" class="puzzle-editor-input" type="number" value="20" min="3" max="99" />
+        </div>
+        <div class="puzzle-editor-row" style="flex:1; margin:0;">
+          <label style="width:30px;">Par</label>
+          <input id="editor-par" class="puzzle-editor-input" type="number" value="12" min="2" max="99" />
+        </div>
+      </div>
+      <div class="puzzle-editor-row">
+        <label>Goal</label>
+        <select id="editor-goal-type" class="puzzle-editor-input">
+          <option value="clear_color">Clear color</option>
+          <option value="defuse_bomb">Defuse bomb</option>
+          <option value="make_starflower">Make starflower</option>
+          <option value="score">Score target</option>
+          <option value="clear_all">Clear all</option>
+        </select>
+      </div>
+      <div class="puzzle-editor-row" id="editor-goal-param-row">
+        <label id="editor-goal-param-label">Color (0–4)</label>
+        <input id="editor-goal-param" class="puzzle-editor-input" placeholder="0=red 1=orange 2=blue 3=green 4=purple" value="0" />
+      </div>
+
+      <div class="puzzle-editor-row" style="margin-top:4px;">
+        <label>Board</label>
+        <textarea id="editor-board-string" class="puzzle-editor-board" placeholder="Capture the live board or paste a board string…"></textarea>
+      </div>
+
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <button id="btn-capture-board"   class="start-btn" style="margin:0;flex:1;background:#333;padding:10px;">📷 Capture Board</button>
+        <button id="btn-generate-code"   class="start-btn" style="margin:0;flex:1;background:#333;padding:10px;">🔗 Generate Code</button>
+        <button id="btn-play-from-editor" class="start-btn" style="margin:0;flex:1;background:#8040c0;padding:10px;">▶ Play</button>
+      </div>
+
+      <div id="editor-status" class="copy-confirm" style="margin-top:6px; text-align:center; opacity:0;"></div>
+
+      <div id="share-code-output" class="share-code-box hidden" title="Tap to copy"></div>
+
+      <button id="btn-close-puzzle-editor" class="start-btn" style="background:#222; margin-top:12px;">Close</button>
     </div>
   </div>
 

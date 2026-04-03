@@ -4,7 +4,7 @@
 
 import { GRID_COLS, GRID_ROWS, PIECE_COLORS, BOMB_INITIAL_TIMER } from './constants.js';
 import { getNeighbors } from './hex-math.js';
-import { getActiveGameMode, getActiveMatchMode } from './modes.js';
+import { getActiveMatchMode } from './modes.js';
 
 /**
  * A cell in the grid.
@@ -105,7 +105,8 @@ export function getCell(grid, col, row) {
  * CCW: [0,1,2] → colors shift: 1→0, 2→1, 0→2
  */
 export function rotateCluster(grid, cluster, clockwise) {
-  const cells = cluster.map(h => grid[h.col][h.row]);
+  const cells = cluster.map(h => grid[h.col]?.[h.row]);
+  if (cells.some(c => !c)) return;
   if (clockwise) {
     const saved = { ...cells[0] };
     cells[0].colorIndex = cells[2].colorIndex;
@@ -138,7 +139,8 @@ export function rotateCluster(grid, cluster, clockwise) {
  * @param {Array<{col, row}>} ring - 6 neighbor positions in clockwise order
  */
 export function rotateRing(grid, ring, clockwise) {
-  const cells = ring.map(h => grid[h.col][h.row]);
+  const cells = ring.map(h => grid[h.col]?.[h.row]);
+  if (cells.some(c => !c)) return;
   if (clockwise) {
     const saved = { colorIndex: cells[5].colorIndex, special: cells[5].special, bombTimer: cells[5].bombTimer };
     for (let i = 5; i > 0; i--) {
@@ -171,8 +173,9 @@ export function findMatches(grid, cols = GRID_COLS, rows = GRID_ROWS) {
   const allMatched = new Set();
 
   for (let c = 0; c < cols; c++) {
+    if (!grid[c]) continue;
     for (let r = 0; r < rows; r++) {
-      if (grid[c][r] === null) continue;
+      if (!grid[c][r]) continue;
       if (grid[c][r].special === 'starflower') continue; // starflowers can't match
       if (grid[c][r].special === 'blackpearl') continue; // black pearls can't match in rows
       if (grid[c][r].special === 'grandpoobah') continue; // grandpoobahs don't start matches
@@ -190,8 +193,8 @@ export function findMatches(grid, cols = GRID_COLS, rows = GRID_ROWS) {
           const nc = nq;
           const nrow = nr + (nq - (nq & 1)) / 2;
           if (nc < 0 || nc >= cols || nrow < 0 || nrow >= rows) break;
-          const nCell = grid[nc][nrow];
-          if (nCell === null || (nCell.colorIndex !== color && nCell.special !== 'grandpoobah')) break;
+          const nCell = grid[nc]?.[nrow];
+          if (!nCell || (nCell.colorIndex !== color && nCell.special !== 'grandpoobah')) break;
           run.push({ col: nc, row: nrow });
         }
 
@@ -233,8 +236,9 @@ export function findTriangleMatches(grid, cols = GRID_COLS, rows = GRID_ROWS) {
   const allMatched = new Set();
 
   for (let c = 0; c < cols; c++) {
+    if (!grid[c]) continue;
     for (let r = 0; r < rows; r++) {
-      if (grid[c][r] === null) continue;
+      if (!grid[c][r]) continue;
       if (grid[c][r].special === 'starflower') continue;
       if (grid[c][r].special === 'blackpearl') continue;
       if (grid[c][r].special === 'grandpoobah') continue;
@@ -249,8 +253,8 @@ export function findTriangleMatches(grid, cols = GRID_COLS, rows = GRID_ROWS) {
         if (B.col < 0 || B.col >= cols || B.row < 0 || B.row >= rows) continue;
         if (D.col < 0 || D.col >= cols || D.row < 0 || D.row >= rows) continue;
 
-        const cellB = grid[B.col][B.row];
-        const cellD = grid[D.col][D.row];
+        const cellB = grid[B.col]?.[B.row];
+        const cellD = grid[D.col]?.[D.row];
 
         if (!cellB || !cellD) continue;
         if (cellB.special === 'starflower' || cellB.special === 'blackpearl') continue;
@@ -291,10 +295,11 @@ export function findMatchesForMode(grid, cols = GRID_COLS, rows = GRID_ROWS) {
 export function applyGravity(grid, cols = GRID_COLS, rows = GRID_ROWS) {
   let moved = false;
   for (let c = 0; c < cols; c++) {
+    if (!grid[c]) continue;
     // Walk from bottom up, shift non-null cells down
     let writeRow = rows - 1;
     for (let r = rows - 1; r >= 0; r--) {
-      if (grid[c][r] !== null) {
+      if (grid[c][r]) {
         if (r !== writeRow) {
           grid[c][writeRow] = grid[c][r];
           grid[c][r] = null;
@@ -313,7 +318,11 @@ export function applyGravity(grid, cols = GRID_COLS, rows = GRID_ROWS) {
  * @param {boolean} spawnBomb - If true, one of the new pieces will be a bomb.
  * @param {object} spawnOptions - Options for spawning specific specials { starflowers: number, blackpearls: number }
  */
-export function fillEmpty(grid, cols = GRID_COLS, rows = GRID_ROWS, numColors = PIECE_COLORS.length, spawnBomb = false, spawnOptions = { starflowers: 0, blackpearls: 0, grandpoobahs: 0 }) {
+export function fillEmpty(grid, cols = GRID_COLS, rows = GRID_ROWS, numColors = PIECE_COLORS.length, spawnBomb = false, spawnOptions = { starflowers: 0, blackpearls: 0, grandpoobahs: 0 }, noRefill = false) {
+  // noRefill: puzzle mode uses fixed boards — no new tiles spawn from the top.
+  // Callers pass noRefill explicitly so board.js stays game-mode-agnostic.
+  if (noRefill) return [];
+
   const filled = [];
   for (let c = 0; c < cols; c++) {
     for (let r = 0; r < rows; r++) {

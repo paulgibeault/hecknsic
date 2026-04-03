@@ -100,6 +100,57 @@ export function loadSettings() {
   }
 }
 
+// ─── Puzzle progress ────────────────────────────────────────────
+
+/**
+ * Get puzzle completion record for a given puzzle id.
+ * @returns {{ stars: number, bestMoves: number|null, solved: bool } | null}
+ */
+export function getPuzzleProgress(puzzleId) {
+  try {
+    const raw = localStorage.getItem(`hecknsic_puzzle_${puzzleId}`);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * Save puzzle completion. Keeps best stars and best move count.
+ * @param {string} puzzleId
+ * @param {{ stars: number, movesUsed: number }} result
+ */
+export function savePuzzleProgress(puzzleId, result) {
+  const existing = getPuzzleProgress(puzzleId) ?? { stars: 0, bestMoves: null, bestScore: 0, solved: false };
+  const updated = {
+    stars:     Math.max(existing.stars, result.stars ?? 0),
+    bestMoves: result.movesUsed != null
+      ? (existing.bestMoves === null ? result.movesUsed : Math.min(existing.bestMoves, result.movesUsed))
+      : existing.bestMoves,
+    bestScore: Math.max(existing.bestScore ?? 0, result.score ?? 0),
+    solved:    existing.solved || (result.stars != null && result.stars > 0),
+    lastPlayedAt: Date.now(),
+  };
+  try {
+    localStorage.setItem(`hecknsic_puzzle_${puzzleId}`, JSON.stringify(updated));
+  } catch (e) {
+    console.error('Failed to save puzzle progress:', e);
+  }
+}
+
+/**
+ * Check if a sector is unlocked (first sector always unlocked; others require prior sector complete).
+ * @param {string} sectorId
+ * @param {Array<{id: string, puzzles: Array<{id: string}>}>} sectors — the full PUZZLE_SECTORS array
+ */
+export function isSectorUnlocked(sectorId, sectors) {
+  const idx = sectors.findIndex(s => s.id === sectorId);
+  if (idx === 0) return true; // first sector always open
+  const prev = sectors[idx - 1];
+  if (!prev) return false;
+  return prev.puzzles.every(p => getPuzzleProgress(p.id)?.solved);
+}
+
 // ─── High scores (per-mode) ─────────────────────────────────────
 
 /**
