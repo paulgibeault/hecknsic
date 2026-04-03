@@ -19,12 +19,10 @@
   flex-shrink: 0;
   pointer-events: auto;
 }
-.help-btn   { }
 .scores-wrapper {
   display: flex;
   align-items: center;
 }
-.scores-btn { }
 
 .icon-btn:hover {
   background: rgba(255, 255, 255, 0.12);

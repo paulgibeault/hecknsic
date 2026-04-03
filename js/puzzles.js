@@ -70,6 +70,10 @@ export function decodePuzzleBoard(encoded, cols, rows) {
     }
 
     if (c >= 0 && c < cols && r >= 0 && r < rows) {
+      // Clamp colorIndex to valid range to guard against crafted share codes.
+      // Special pieces (starflower/blackpearl) use colorIndex -1/-2 — those are fine.
+      const MAX_COLOR = 5; // PIECE_COLORS.length + EXTRA_COLORS.length
+      if (colorIndex >= 0) colorIndex = Math.min(colorIndex, MAX_COLOR - 1);
       grid[c][r] = { colorIndex, special };
       if (bombTimer !== null) grid[c][r].bombTimer = bombTimer;
     }
@@ -108,6 +112,8 @@ export function evaluateGoal(goal, grid, stats, cols, rows) {
       let remaining = 0;
       for (let c = 0; c < cols; c++)
         for (let r = 0; r < rows; r++)
+          // Intentional: bombs/starflowers/blackpearls with a matching colorIndex are excluded.
+          // A bomb of the target color must be defused separately; it doesn't satisfy clear_color.
           if (grid[c]?.[r] && grid[c][r].colorIndex === goal.colorIndex && !grid[c][r].special)
             remaining++;
       return {

@@ -20,7 +20,7 @@ import {
   applyGravity, fillEmpty,
 } from './board.js';
 import {
-  initRenderer, resize, drawFrame, getOrigin, getBoardScale,
+  initRenderer, resize, drawFrame, getOrigin, getBoardScale, setPuzzleModeRenderer,
   setCellOverride, clearCellOverride, clearAllOverrides,
   addFloatingPiece, removeFloatingPiece,
   spawnCreationParticles, spawnScorePopup,
@@ -110,10 +110,13 @@ registerPuzzleCallbacks(
     activeRows = rows;
     setActiveGridSize(cols, rows);
     state = 'idle';
+    setPuzzleModeRenderer(true);
+    requestRedraw();
   },
   // onEnd: freeze input when puzzle ends
   (reason) => {
     state = 'gameover';
+    setPuzzleModeRenderer(false);
   }
 );
 
@@ -631,6 +634,7 @@ async function switchGameMode(newModeId) {
   if (newModeId === getActiveGameModeId()) return;
   saveGame();
   clearActivePuzzle();
+  setPuzzleModeRenderer(false);
   setActiveGameMode(newModeId);
   if (newModeId === 'chill') {
     document.getElementById('dropdown-btn-end-session').classList.remove('hidden');
@@ -1033,7 +1037,7 @@ async function animateBlackPearlCreation(bpResults) {
 
   applyGravity(grid, activeCols, activeRows);
   const mode = getActiveGameMode();
-  const filled = fillEmpty(grid, activeCols, activeRows, undefined, mode.hasBombs && bombQueued, { starflowers: 0, blackpearls: queuedBlackpearls });
+  const filled = fillEmpty(grid, activeCols, activeRows, undefined, mode.hasBombs && bombQueued, { starflowers: 0, blackpearls: queuedBlackpearls }, mode.isPuzzle);
   if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
 }
 
@@ -1134,7 +1138,7 @@ async function animateGrandPoobahCreation(gpResults) {
 
   applyGravity(grid, activeCols, activeRows);
   const mode = getActiveGameMode();
-  const filled = fillEmpty(grid, activeCols, activeRows, undefined, mode.hasBombs && bombQueued, { starflowers: 0, blackpearls: 0, grandpoobahs: queuedGrandPoobahs });
+  const filled = fillEmpty(grid, activeCols, activeRows, undefined, mode.hasBombs && bombQueued, { starflowers: 0, blackpearls: 0, grandpoobahs: queuedGrandPoobahs }, mode.isPuzzle);
   if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
 
   handleGameWin();
@@ -1596,7 +1600,7 @@ async function animateStarflowerCreation(sfResults) {
   applyGravity(grid, activeCols, activeRows);
   {
     const mode = getActiveGameMode();
-    const filled = fillEmpty(grid, activeCols, activeRows, undefined, mode.hasBombs && bombQueued, { starflowers: queuedStarflowers, blackpearls: 0 });
+    const filled = fillEmpty(grid, activeCols, activeRows, undefined, mode.hasBombs && bombQueued, { starflowers: queuedStarflowers, blackpearls: 0 }, mode.isPuzzle);
     if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
   }
 }
@@ -1889,7 +1893,7 @@ async function runCascade(initialMatches, gen = boardGeneration) {
   applyGravity(grid, activeCols, activeRows);
   {
     const mode = getActiveGameMode();
-    const filled = fillEmpty(grid, activeCols, activeRows, undefined, mode.hasBombs && bombQueued);
+    const filled = fillEmpty(grid, activeCols, activeRows, undefined, mode.hasBombs && bombQueued, undefined, mode.isPuzzle);
     if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
   }
   requestRedraw();

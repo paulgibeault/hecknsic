@@ -32,10 +32,11 @@ export function encodePuzzleShareCode(puzzle) {
     g:   puzzle.goal,
     b:   puzzle.board,
   };
-  const json    = JSON.stringify(compact);
-  const encoded = btoa(unescape(encodeURIComponent(json)))
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  return encoded;
+  const json  = JSON.stringify(compact);
+  // Use TextEncoder for full Unicode support (emoji, CJK safe)
+  const bytes = new TextEncoder().encode(json);
+  const b64   = btoa(String.fromCharCode(...bytes));
+  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 /**
@@ -47,7 +48,9 @@ export function decodePuzzleShareCode(code) {
     const padded = code.replace(/-/g, '+').replace(/_/g, '/');
     const pad    = padded.length % 4;
     const b64    = pad ? padded + '='.repeat(4 - pad) : padded;
-    const json   = decodeURIComponent(escape(atob(b64)));
+    // Use TextDecoder for full Unicode support (emoji, CJK safe)
+    const bytes  = Uint8Array.from(atob(b64), ch => ch.charCodeAt(0));
+    const json   = new TextDecoder().decode(bytes);
     const c      = JSON.parse(json);
     if (!c.v || !c.b || !c.g) return null;
     return {
@@ -89,7 +92,7 @@ export function initPuzzleEditorUI() {
       return;
     }
     document.getElementById('modal-puzzle-editor').classList.add('hidden');
-    if (_startPuzzleFn) _startPuzzleFn(puzzle.id === 'custom' ? puzzle : puzzle);
+    if (_startPuzzleFn) _startPuzzleFn(puzzle);
   });
 
   // Capture board button

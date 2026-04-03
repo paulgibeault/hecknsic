@@ -37,9 +37,11 @@ let movesUsed      = 0;
 let maxChain       = 0;     // highest chain level seen this run
 let stats          = { totalMoves: 0, starflowersMade: 0, score: 0 };
 let goalMet        = false;
+let puzzleDone     = false; // guard against double-fire from concurrent setTimeout branches
 let _onPuzzleLoad  = null;  // callback(grid, cols, rows, puzzle) — set by main.js
 let _onPuzzleEnd   = null;  // callback(reason) — 'complete' | 'failed'
-let _customPuzzles = {};    // id → puzzle (for custom/daily puzzles not in registry)
+// Custom/daily puzzle cache — capped at 14 entries (LRU by insertion order via Map)
+let _customPuzzles = new Map();
 
 // ─── Public API ─────────────────────────────────────────────────
 
@@ -60,9 +62,11 @@ export function startPuzzle(puzzleIdOrObject) {
   let puzzle;
   if (typeof puzzleIdOrObject === 'object') {
     puzzle = puzzleIdOrObject;
-    _customPuzzles[puzzle.id] = puzzle;  // register so retry/next can find it
+    // Register in LRU cache; evict oldest when over cap
+    _customPuzzles.set(puzzle.id, puzzle);
+    if (_customPuzzles.size > 14) _customPuzzles.delete(_customPuzzles.keys().next().value);
   } else {
-    puzzle = getPuzzleById(puzzleIdOrObject) ?? _customPuzzles[puzzleIdOrObject];
+    puzzle = getPuzzleById(puzzleIdOrObject) ?? _customPuzzles.get(puzzleIdOrObject);
   }
   if (!puzzle) { console.error('Unknown puzzle:', puzzleIdOrObject); return; }
 
@@ -70,6 +74,7 @@ export function startPuzzle(puzzleIdOrObject) {
   movesUsed    = 0;
   maxChain     = 0;
   goalMet      = false;
+  puzzleDone   = false;
   stats        = { totalMoves: 0, starflowersMade: 0, score: 0 };
 
   hidePuzzleModals();
@@ -98,8 +103,9 @@ export function onPuzzleMove(grid, score, chainLevel) {
   const result = evaluateGoal(activePuzzle.goal, grid, stats, activePuzzle.cols, activePuzzle.rows);
   updateGoalProgress(result.progress);
 
-  if (result.met && !goalMet) {
+  if (result.met && !goalMet && !puzzleDone) {
     goalMet = true;
+    puzzleDone = true;
     const stars = computeStars(activePuzzle, movesUsed, maxChain);
     savePuzzleProgress(activePuzzle.id, { stars, movesUsed, score: stats.score ?? 0 });
     setTimeout(() => showPuzzleResult(stars), 600);
@@ -107,13 +113,15 @@ export function onPuzzleMove(grid, score, chainLevel) {
   }
 
   // Out of moves?
-  if (movesUsed >= activePuzzle.moveLimit && !goalMet) {
+  if (movesUsed >= activePuzzle.moveLimit && !goalMet && !puzzleDone) {
+    puzzleDone = true;
     setTimeout(() => showPuzzleFailed(), 600);
     return;
   }
 
   // No valid moves remaining? (deadlock)
-  if (!goalMet && !hasValidMoves(grid, activePuzzle.cols, activePuzzle.rows)) {
+  if (!goalMet && !puzzleDone && !hasValidMoves(grid, activePuzzle.cols, activePuzzle.rows)) {
+    puzzleDone = true;
     setTimeout(() => showPuzzleFailed('No more valid moves!'), 600);
     return;
   }
@@ -126,7 +134,7 @@ export function onPuzzleMove(grid, score, chainLevel) {
  */
 export function onStarflowerCreated() {
   if (!activePuzzle) return;
-  stats.starflowersMade = (stats.starflowersMade ?? 0) + 1;
+  stats.starflowersMade++;
 }
 
 /**

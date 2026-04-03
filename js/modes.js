@@ -5,6 +5,9 @@
 const GAME_MODES = {
   arcade: { id: 'arcade', label: 'Arcade', hasBombs: true,  hasGameOver: true,  isPuzzle: false },
   chill:  { id: 'chill',  label: 'Chill',  hasBombs: false, hasGameOver: false, isPuzzle: false },
+  // Puzzle mode: hasBombs=false means tickBombs() is never called — bomb timers are static
+  // puzzle design tools, not countdowns. The renderer is told to hide the timer number
+  // via isPuzzle so players aren't confused by a number that never changes.
   puzzle: { id: 'puzzle', label: 'Puzzle', hasBombs: false, hasGameOver: true,  isPuzzle: true  },
 };
 

@@ -4,7 +4,7 @@
 
 import { GRID_COLS, GRID_ROWS, PIECE_COLORS, BOMB_INITIAL_TIMER } from './constants.js';
 import { getNeighbors } from './hex-math.js';
-import { getActiveGameMode, getActiveMatchMode } from './modes.js';
+import { getActiveMatchMode } from './modes.js';
 
 /**
  * A cell in the grid.
@@ -318,9 +318,10 @@ export function applyGravity(grid, cols = GRID_COLS, rows = GRID_ROWS) {
  * @param {boolean} spawnBomb - If true, one of the new pieces will be a bomb.
  * @param {object} spawnOptions - Options for spawning specific specials { starflowers: number, blackpearls: number }
  */
-export function fillEmpty(grid, cols = GRID_COLS, rows = GRID_ROWS, numColors = PIECE_COLORS.length, spawnBomb = false, spawnOptions = { starflowers: 0, blackpearls: 0, grandpoobahs: 0 }) {
-  // Puzzle mode: fixed board, no new tiles spawn from the top
-  if (getActiveGameMode().isPuzzle) return [];
+export function fillEmpty(grid, cols = GRID_COLS, rows = GRID_ROWS, numColors = PIECE_COLORS.length, spawnBomb = false, spawnOptions = { starflowers: 0, blackpearls: 0, grandpoobahs: 0 }, noRefill = false) {
+  // noRefill: puzzle mode uses fixed boards — no new tiles spawn from the top.
+  // Callers pass noRefill explicitly so board.js stays game-mode-agnostic.
+  if (noRefill) return [];
 
   const filled = [];
   for (let c = 0; c < cols; c++) {

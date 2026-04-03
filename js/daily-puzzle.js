@@ -141,8 +141,14 @@ export function generateDailyPuzzle(dateStr) {
       break;
     }
     case 'clear_all': {
-      // Reduce to a smaller 5x5 sub-board for clear_all (more achievable)
-      goal = { type: 'clear_all' };
+      // clear_all on a 9×9 board is not reliably solvable.
+      // Constrain to a 5×5 sub-region of the generated board so the goal is achievable.
+      // gridData is already generated — just truncate to the top-left 5×5 cells.
+      const clearCols = 5, clearRows = 5;
+      gridData.splice(0, gridData.length,
+        ...gridData.filter(({ c, r }) => c < clearCols && r < clearRows)
+      );
+      goal = { type: 'clear_all', _boardCols: clearCols, _boardRows: clearRows };
       break;
     }
     default:
@@ -167,16 +173,27 @@ export function generateDailyPuzzle(dateStr) {
     clear_all:       'Clear the board',
   };
 
+  // clear_all goal uses a smaller board — use overrides if present
+  const finalCols = goal._boardCols ?? cols;
+  const finalRows = goal._boardRows ?? rows;
+  // Strip internal _board* hints from the goal before returning
+  const { _boardCols, _boardRows, ...cleanGoal } = goal;
+  // Recalculate move limit for smaller clear_all boards
+  const finalMoveLimit = (finalCols !== cols)
+    ? Math.round(finalCols * finalRows * 0.5 + 4)
+    : moveLimit;
+  const finalPar = Math.round(finalMoveLimit * 0.65);
+
   return {
     id:          getDailyPuzzleId(dateStr),
     name:        `Daily — ${dateStr}`,
     description: `${dayNames[dayOfWeek]}'s challenge: ${goalLabels[goalType]}`,
-    cols,
-    rows,
-    moveLimit,
-    par,
+    cols:        finalCols,
+    rows:        finalRows,
+    moveLimit:   finalMoveLimit,
+    par:         finalPar,
     noRefill: true,
-    goal,
+    goal:        cleanGoal,
     board,
     isDaily: true,
     dateStr,
