@@ -92,7 +92,9 @@ function recalcOrigin() {
   const gridPixelH = activeGridRows * Math.sqrt(3) * HEX_SIZE + Math.sqrt(3) / 2 * HEX_SIZE;
 
   // Space reserved for HUD (top) and rotation controls (bottom).
-  const HUD_H  = 60;
+  // Measure the actual rendered HUD height so the board sits flush beneath it.
+  const hudEl = document.getElementById('game-hud');
+  const HUD_H = hudEl ? hudEl.getBoundingClientRect().height : 60;
   
   // If we have a fine pointer (mouse/trackpad) and a wide screen, controls are hidden via CSS.
   // We can free up that vertical space for the board.
