@@ -968,11 +968,8 @@ async function animateBlackPearlCreation(bpResults) {
 
   applyGravity(grid);
   const mode = getActiveGameMode();
-  // Puzzle mode: no refill — tiles only fall, nothing spawns from top
-  if (!mode.isPuzzle) {
-    const filled = fillEmpty(grid, undefined, undefined, undefined, mode.hasBombs && bombQueued, { starflowers: 0, blackpearls: queuedBlackpearls });
-    if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
-  }
+  const filled = fillEmpty(grid, undefined, undefined, undefined, mode.hasBombs && bombQueued, { starflowers: 0, blackpearls: queuedBlackpearls });
+  if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
 }
 
 async function animateGrandPoobahCreation(gpResults) {

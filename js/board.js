@@ -314,6 +314,9 @@ export function applyGravity(grid, cols = GRID_COLS, rows = GRID_ROWS) {
  * @param {object} spawnOptions - Options for spawning specific specials { starflowers: number, blackpearls: number }
  */
 export function fillEmpty(grid, cols = GRID_COLS, rows = GRID_ROWS, numColors = PIECE_COLORS.length, spawnBomb = false, spawnOptions = { starflowers: 0, blackpearls: 0, grandpoobahs: 0 }) {
+  // Puzzle mode: fixed board, no new tiles spawn from the top
+  if (getActiveGameMode().isPuzzle) return [];
+
   const filled = [];
   for (let c = 0; c < cols; c++) {
     for (let r = 0; r < rows; r++) {
