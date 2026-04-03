@@ -18,6 +18,7 @@ import {
   describeGoal,
   computeStars,
 } from './puzzles.js';
+import { getNeighbors } from './hex-math.js';
 
 import {
   getPuzzleProgress,
@@ -106,6 +107,12 @@ export function onPuzzleMove(grid, score, chainLevel) {
   // Out of moves?
   if (movesUsed >= activePuzzle.moveLimit && !goalMet) {
     setTimeout(() => showPuzzleFailed(), 600);
+    return;
+  }
+
+  // No valid moves remaining? (deadlock)
+  if (!goalMet && !hasValidMoves(grid, activePuzzle.cols, activePuzzle.rows)) {
+    setTimeout(() => showPuzzleFailed('No more valid moves!'), 600);
     return;
   }
 
@@ -270,16 +277,56 @@ function showPuzzleResult(stars) {
   if (_onPuzzleEnd) _onPuzzleEnd('complete');
 }
 
-function showPuzzleFailed() {
+function showPuzzleFailed(reason) {
   showPuzzleHUD(false);
 
-  const movesLeft = activePuzzle.moveLimit - movesUsed;
-  document.getElementById('puzzle-failed-msg').textContent =
-    `You used all ${activePuzzle.moveLimit} moves. ${describeGoal(activePuzzle.goal)} — so close!`;
+  const titleEl = document.getElementById('puzzle-failed-title');
+  if (reason) {
+    if (titleEl) titleEl.textContent = 'No Moves Left';
+    document.getElementById('puzzle-failed-msg').textContent =
+      `${reason} ${describeGoal(activePuzzle.goal)} — so close!`;
+  } else {
+    if (titleEl) titleEl.textContent = 'Out of Moves';
+    document.getElementById('puzzle-failed-msg').textContent =
+      `You used all ${activePuzzle.moveLimit} moves. ${describeGoal(activePuzzle.goal)} — so close!`;
+  }
 
   document.getElementById('modal-puzzle-failed').classList.remove('hidden');
 
   if (_onPuzzleEnd) _onPuzzleEnd('failed');
+}
+
+/**
+ * Check if any valid 3-hex cluster exists where all 3 hexes have pieces.
+ * Also checks for starflower rings and black pearl Y-shapes.
+ */
+function hasValidMoves(grid, cols, rows) {
+  for (let c = 0; c < cols; c++) {
+    for (let r = 0; r < rows; r++) {
+      if (!grid[c]?.[r]) continue;
+
+      // Starflower ring selection — if any starflower has all 6 neighbors in-bounds with pieces
+      if (grid[c][r].special === 'starflower') {
+        const nbrs = getNeighbors(c, r);
+        if (nbrs.every(n => n.col >= 0 && n.col < cols && n.row >= 0 && n.row < rows && grid[n.col]?.[n.row])) {
+          return true;
+        }
+      }
+
+      // Normal 3-hex cluster: check each pair of adjacent neighbors
+      const nbrs = getNeighbors(c, r);
+      for (let i = 0; i < 6; i++) {
+        const b = nbrs[i];
+        const d = nbrs[(i + 1) % 6];
+        if (b.col >= 0 && b.col < cols && b.row >= 0 && b.row < rows &&
+            d.col >= 0 && d.col < cols && d.row >= 0 && d.row < rows &&
+            grid[b.col]?.[b.row] && grid[d.col]?.[d.row]) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
 }
 
 function hidePuzzleModals() {

@@ -188,7 +188,7 @@ export function detectStarflowersAtCleared(grid, clearedKeys) {
   const results = [];
   for (const key of clearedKeys) {
     const [c, r] = key.split(',').map(Number);
-    if (grid[c][r] !== null) continue;
+    if (!grid[c] || grid[c][r] !== null) continue;
 
     const nbrs = getNeighbors(c, r);
     const valid = nbrs.filter(n =>
@@ -209,7 +209,7 @@ export function detectStarflowersAtCleared(grid, clearedKeys) {
     
     if (color >= 0 && valid.every(n => grid[n.col][n.row].colorIndex === color || grid[n.col][n.row].special === 'grandpoobah')) {
       // Create the starflower in the cleared position
-      grid[c][r] = { colorIndex: -1, special: 'starflower' };
+      if (grid[c]) grid[c][r] = { colorIndex: -1, special: 'starflower' };
       results.push({
         center: { col: c, row: r },
         ring: valid.map(n => ({ col: n.col, row: n.row })),

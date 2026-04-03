@@ -681,8 +681,10 @@ async function animateClusterRotation(clockwise, originX, originY) {
   const pixelPos = cluster.map(h => hexToPixel(h.col, h.row, originX, originY));
   const cx = (pixelPos[0].x + pixelPos[1].x + pixelPos[2].x) / 3;
   const cy = (pixelPos[0].y + pixelPos[1].y + pixelPos[2].y) / 3;
-  const colors = cluster.map(h => grid[h.col][h.row].colorIndex);
-  const specials = cluster.map(h => grid[h.col][h.row].special);
+  const cells = cluster.map(h => grid[h.col]?.[h.row]);
+  if (cells.some(c => !c)) { state = 'idle'; return; }
+  const colors = cells.map(c => c.colorIndex);
+  const specials = cells.map(c => c.special);
 
   const floaters = cluster.map((h, i) => {
     setCellOverride(h.col, h.row, { hidden: true });
@@ -744,8 +746,10 @@ async function animateRingRotation(clockwise, originX, originY) {
   const cy = centerPx.y;
 
   const pixelPos = ring.map(h => hexToPixel(h.col, h.row, originX, originY));
-  const colors = ring.map(h => grid[h.col][h.row].colorIndex);
-  const specials = ring.map(h => grid[h.col][h.row].special);
+  const ringCells = ring.map(h => grid[h.col]?.[h.row]);
+  if (ringCells.some(c => !c)) { state = 'idle'; return; }
+  const colors = ringCells.map(c => c.colorIndex);
+  const specials = ringCells.map(c => c.special);
 
   // Hide ring cells, create floating pieces
   const floaters = ring.map((h, i) => {
@@ -811,8 +815,10 @@ async function animateYRotation(clockwise, originX, originY) {
   const cy = centerPx.y;
 
   const pixelPos = yRing.map(h => hexToPixel(h.col, h.row, originX, originY));
-  const colors = yRing.map(h => grid[h.col][h.row].colorIndex);
-  const specials = yRing.map(h => grid[h.col][h.row].special);
+  const yCells = yRing.map(h => grid[h.col]?.[h.row]);
+  if (yCells.some(c => !c)) { state = 'idle'; return; }
+  const colors = yCells.map(c => c.colorIndex);
+  const specials = yCells.map(c => c.special);
 
   // Hide Y-ring cells, create floating pieces
   const floaters = yRing.map((h, i) => {
@@ -866,7 +872,7 @@ async function animateYRotation(clockwise, originX, originY) {
   clearAllOverrides();
 
   // Apply the Y-rotation to the grid: rotate the 3 cells
-  const saved = yRing.map(h => grid[h.col][h.row]);
+  const saved = yRing.map(h => grid[h.col]?.[h.row]);
   if (clockwise) {
     grid[yRing[0].col][yRing[0].row] = saved[2];
     grid[yRing[1].col][yRing[1].row] = saved[0];
@@ -1572,7 +1578,7 @@ async function runCascade(initialMatches) {
     // Analyze colors
     const colors = new Set(clusterArr.map(k => {
       const [c,r] = k.split(',').map(Number);
-      return grid[c][r].colorIndex;
+      return grid[c]?.[r]?.colorIndex;
     }));
 
     if (colors.size === 1) {
@@ -1595,7 +1601,7 @@ async function runCascade(initialMatches) {
   const colorPresence = {}; // colorIndex -> { hasBomb: bool, hasMultiplier: bool }
   for (const key of pendingMatches) {
     const [c,r] = key.split(',').map(Number);
-    const cell = grid[c][r];
+    const cell = grid[c]?.[r];
     if (!cell) continue;
     const color = cell.colorIndex;
     if (!colorPresence[color]) colorPresence[color] = { hasBomb: false, hasMultiplier: false };
@@ -1638,7 +1644,7 @@ async function runCascade(initialMatches) {
     for (const n of nbrs) {
       if (n.col >= 0 && n.col < activeCols && n.row >= 0 && n.row < activeRows) {
         // Explode neighbors (unless they are indestuctible?)
-        if (grid[n.col][n.row] &&
+        if (grid[n.col]?.[n.row] &&
             grid[n.col][n.row].special !== 'blackpearl' &&
             grid[n.col][n.row].special !== 'starflower' &&
             grid[n.col][n.row].special !== 'grandpoobah') { // Trophy tiles are indestructible
@@ -1750,7 +1756,7 @@ async function runCascade(initialMatches) {
   await tween(MATCH_FLASH_MS, t => {
     for (const key of matches) {
       const [c, r] = key.split(',').map(Number);
-      if (grid[c][r]) { // Start check: cell might be null if processed? No, we haven't cleared yet.
+      if (grid[c]?.[r]) {
         if (t < 0.3) {
           setCellOverride(c, r, { scale: 1 + 0.1 * (t / 0.3) });
         } else {
@@ -1782,7 +1788,7 @@ async function runCascade(initialMatches) {
 
   for (const key of matches) {
     const [c, r] = key.split(',').map(Number);
-    grid[c][r] = null;
+    if (grid[c]) grid[c][r] = null;
   }
   clearAllOverrides();
   requestRedraw();

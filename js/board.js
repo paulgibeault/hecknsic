@@ -105,7 +105,8 @@ export function getCell(grid, col, row) {
  * CCW: [0,1,2] → colors shift: 1→0, 2→1, 0→2
  */
 export function rotateCluster(grid, cluster, clockwise) {
-  const cells = cluster.map(h => grid[h.col][h.row]);
+  const cells = cluster.map(h => grid[h.col]?.[h.row]);
+  if (cells.some(c => !c)) return;
   if (clockwise) {
     const saved = { ...cells[0] };
     cells[0].colorIndex = cells[2].colorIndex;
@@ -138,7 +139,8 @@ export function rotateCluster(grid, cluster, clockwise) {
  * @param {Array<{col, row}>} ring - 6 neighbor positions in clockwise order
  */
 export function rotateRing(grid, ring, clockwise) {
-  const cells = ring.map(h => grid[h.col][h.row]);
+  const cells = ring.map(h => grid[h.col]?.[h.row]);
+  if (cells.some(c => !c)) return;
   if (clockwise) {
     const saved = { colorIndex: cells[5].colorIndex, special: cells[5].special, bombTimer: cells[5].bombTimer };
     for (let i = 5; i > 0; i--) {
