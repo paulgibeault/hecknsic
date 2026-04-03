@@ -17,18 +17,18 @@
   <!-- Puzzle HUD — shown only during active puzzle -->
   <div id="puzzle-hud" style="display:none; position:fixed; top:0; left:0; right:0; z-index:50;
        background: linear-gradient(to bottom, rgba(20,16,30,0.97), rgba(20,16,30,0));
-       padding: 10px 16px 24px; flex-direction: column; gap: 4px; pointer-events: none;">
+       padding: 8px 16px 28px; padding-top: 60px; flex-direction: column; gap: 6px; pointer-events: none;">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <div style="font-size:0.7rem; font-weight:700; letter-spacing:2px; color:#8040c0; text-transform:uppercase;">🧩 Puzzle</div>
+      <div style="font-size:0.75rem; font-weight:700; letter-spacing:2px; color:#8040c0; text-transform:uppercase;">🧩 Puzzle</div>
       <div style="display:flex; gap:12px; align-items:center;">
-        <span style="font-size:0.7rem; color:#606070;" id="puzzle-par-text">par 6</span>
-        <span style="font-size:0.75rem; color:#a0a0b0;">Moves left:</span>
-        <span style="font-size:1.1rem; font-weight:700; color:#d0d0d8; min-width:2ch; text-align:right;" id="puzzle-moves-left">10</span>
+        <span style="font-size:0.75rem; color:#606070;" id="puzzle-par-text">par 6</span>
+        <span style="font-size:0.85rem; color:#a0a0b0;">Moves left:</span>
+        <span style="font-size:1.3rem; font-weight:700; color:#d0d0d8; min-width:2ch; text-align:right;" id="puzzle-moves-left">10</span>
       </div>
     </div>
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <span style="font-size:0.78rem; color:#9090a8;" id="puzzle-goal-text">Clear all red tiles</span>
-      <span style="font-size:0.72rem; color:#b070f0;" id="puzzle-goal-progress"></span>
+      <span id="puzzle-goal-text" style="font-size:1.1rem; font-weight:700; color:#ffd740; letter-spacing:0.5px; text-shadow: 0 0 12px rgba(255,215,64,0.4);">Clear all red tiles</span>
+      <span id="puzzle-goal-progress" style="font-size:0.85rem; font-weight:600; color:#b070f0;"></span>
     </div>
   </div>
   
@@ -38,7 +38,7 @@
   </button>
   
   <!-- High Score Button -->
-  <div style="position: absolute; right: 70px; top: 20px; text-align: center; z-index: 10;">
+  <div id="scores-wrapper" style="position: absolute; right: 70px; top: 20px; text-align: center; z-index: 10;">
     <button id="btn-scores" class="icon-btn scores-btn" aria-label="High Scores" style="position: relative; right: 0; top: 0;">
       🏆
     </button>

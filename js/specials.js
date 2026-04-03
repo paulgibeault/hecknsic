@@ -13,6 +13,13 @@
 import { GRID_COLS, GRID_ROWS } from './constants.js';
 import { getNeighbors } from './hex-math.js';
 
+/** Derive actual grid bounds — puzzle grids may be smaller than GRID_COLS/GRID_ROWS. */
+function cols(grid) { return grid.length; }
+function rows(grid) { return grid[0]?.length ?? GRID_ROWS; }
+function gridInBounds(grid, h) {
+  return h.col >= 0 && h.col < cols(grid) && h.row >= 0 && h.row < rows(grid);
+}
+
 // ─── Multiplier Tile Detection ──────────────────────────────────
 
 /**
@@ -25,8 +32,8 @@ export function detectMultiplierClusters(grid) {
   const clusters = [];
   const visited = new Set();
 
-  for (let c = 0; c < GRID_COLS; c++) {
-    for (let r = 0; r < GRID_ROWS; r++) {
+  for (let c = 0; c < cols(grid); c++) {
+    for (let r = 0; r < rows(grid); r++) {
       const key = `${c},${r}`;
       if (visited.has(key)) continue;
 
@@ -42,7 +49,7 @@ export function detectMultiplierClusters(grid) {
           const curr = stack.pop();
           const nbrs = getNeighbors(curr.col, curr.row);
           for (const n of nbrs) {
-            if (n.col >= 0 && n.col < GRID_COLS && n.row >= 0 && n.row < GRID_ROWS) {
+            if (n.col >= 0 && n.col < cols(grid) && n.row >= 0 && n.row < rows(grid)) {
               const nKey = `${n.col},${n.row}`;
               if (!visited.has(nKey)) {
                 const nCell = grid[n.col][n.row];
@@ -76,15 +83,15 @@ export function detectMultiplierClusters(grid) {
  */
 export function detectStarflowers(grid) {
   const results = [];
-  for (let c = 0; c < GRID_COLS; c++) {
-    for (let r = 0; r < GRID_ROWS; r++) {
+  for (let c = 0; c < cols(grid); c++) {
+    for (let r = 0; r < rows(grid); r++) {
       const cell = grid[c][r];
       if (!cell) continue;
       const centerAlreadySpecial = (cell.special === 'starflower' || cell.special === 'blackpearl' || cell.special === 'grandpoobah');
 
       const nbrs = getNeighbors(c, r);
       const valid = nbrs.filter(n =>
-        inBounds(n) && grid[n.col][n.row] && grid[n.col][n.row].special !== 'starflower' && grid[n.col][n.row].special !== 'blackpearl'
+        gridInBounds(grid, n) && grid[n.col][n.row] && grid[n.col][n.row].special !== 'starflower' && grid[n.col][n.row].special !== 'blackpearl'
       );
       if (valid.length !== 6) continue;
 
@@ -121,15 +128,15 @@ export function detectStarflowers(grid) {
  */
 export function detectBlackPearls(grid) {
   const results = [];
-  for (let c = 0; c < GRID_COLS; c++) {
-    for (let r = 0; r < GRID_ROWS; r++) {
+  for (let c = 0; c < cols(grid); c++) {
+    for (let r = 0; r < rows(grid); r++) {
       const cell = grid[c][r];
       if (!cell) continue;
       const centerAlreadySpecial = (cell.special === 'starflower' || cell.special === 'blackpearl' || cell.special === 'grandpoobah');
 
       const nbrs = getNeighbors(c, r);
       const validStars = nbrs.filter(n =>
-        inBounds(n) && (grid[n.col][n.row]?.special === 'starflower' || grid[n.col][n.row]?.special === 'grandpoobah')
+        gridInBounds(grid, n) && (grid[n.col][n.row]?.special === 'starflower' || grid[n.col][n.row]?.special === 'grandpoobah')
       );
       if (validStars.length !== 6) continue;
 
@@ -148,15 +155,15 @@ export function detectBlackPearls(grid) {
 
 export function detectGrandPoobahs(grid) {
   const results = [];
-  for (let c = 0; c < GRID_COLS; c++) {
-    for (let r = 0; r < GRID_ROWS; r++) {
+  for (let c = 0; c < cols(grid); c++) {
+    for (let r = 0; r < rows(grid); r++) {
       const cell = grid[c][r];
       if (!cell) continue;
       const centerAlreadySpecial = (cell.special === 'starflower' || cell.special === 'blackpearl' || cell.special === 'grandpoobah');
 
       const nbrs = getNeighbors(c, r);
       const validPearls = nbrs.filter(n =>
-        inBounds(n) && (grid[n.col][n.row]?.special === 'blackpearl' || grid[n.col][n.row]?.special === 'grandpoobah')
+        gridInBounds(grid, n) && (grid[n.col][n.row]?.special === 'blackpearl' || grid[n.col][n.row]?.special === 'grandpoobah')
       );
       if (validPearls.length !== 6) continue;
 
@@ -185,7 +192,7 @@ export function detectStarflowersAtCleared(grid, clearedKeys) {
 
     const nbrs = getNeighbors(c, r);
     const valid = nbrs.filter(n =>
-      inBounds(n) &&
+      gridInBounds(grid, n) &&
       grid[n.col][n.row] !== null &&
       grid[n.col][n.row].special !== 'starflower' &&
       !clearedKeys.has(`${n.col},${n.row}`)
@@ -222,14 +229,14 @@ export function detectStarflowersAtCleared(grid, clearedKeys) {
  */
 export function detectGrandPoobahRing(grid) {
   const results = [];
-  for (let c = 0; c < GRID_COLS; c++) {
-    for (let r = 0; r < GRID_ROWS; r++) {
+  for (let c = 0; c < cols(grid); c++) {
+    for (let r = 0; r < rows(grid); r++) {
       const cell = grid[c][r];
       if (!cell) continue;
 
       const nbrs = getNeighbors(c, r);
       const validGPs = nbrs.filter(n =>
-        inBounds(n) && grid[n.col][n.row]?.special === 'grandpoobah'
+        gridInBounds(grid, n) && grid[n.col][n.row]?.special === 'grandpoobah'
       );
       if (validGPs.length !== 6) continue;
 
@@ -253,8 +260,8 @@ export function detectGrandPoobahRing(grid) {
 export function spawnBomb(grid, timer = 15) {
   // Collect eligible cells
   const candidates = [];
-  for (let c = 0; c < GRID_COLS; c++) {
-    for (let r = 0; r < GRID_ROWS; r++) {
+  for (let c = 0; c < cols(grid); c++) {
+    for (let r = 0; r < rows(grid); r++) {
       if (grid[c][r] && !grid[c][r].special) {
         candidates.push({ col: c, row: r });
       }
@@ -274,8 +281,8 @@ export function spawnBomb(grid, timer = 15) {
  */
 export function tickBombs(grid) {
   let expired = false;
-  for (let c = 0; c < GRID_COLS; c++) {
-    for (let r = 0; r < GRID_ROWS; r++) {
+  for (let c = 0; c < cols(grid); c++) {
+    for (let r = 0; r < rows(grid); r++) {
       const cell = grid[c][r];
       if (cell && cell.special === 'bomb') {
         cell.bombTimer--;
@@ -293,16 +300,11 @@ export function tickBombs(grid) {
  */
 export function countBombs(grid) {
   let count = 0;
-  for (let c = 0; c < GRID_COLS; c++) {
-    for (let r = 0; r < GRID_ROWS; r++) {
+  for (let c = 0; c < cols(grid); c++) {
+    for (let r = 0; r < rows(grid); r++) {
       if (grid[c][r]?.special === 'bomb') count++;
     }
   }
   return count;
 }
 
-// ─── Helpers ────────────────────────────────────────────────────
-
-function inBounds(h) {
-  return h.col >= 0 && h.col < GRID_COLS && h.row >= 0 && h.row < GRID_ROWS;
-}

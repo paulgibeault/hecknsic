@@ -26,7 +26,8 @@ import {
   spawnCreationParticles, spawnScorePopup,
   spawnColorNukeParticles, spawnExplosionParticles,
   spawnRingShockwave, flashScreenOverlay,
-  getLogoBounds, requestRedraw, clearDirty, getIsDirty, hasActiveRendererAnimations
+  getLogoBounds, requestRedraw, clearDirty, getIsDirty, hasActiveRendererAnimations,
+  setActiveGridSize,
 } from './renderer.js';
 import {
   loadActiveMode, getActiveGameMode, getActiveMatchMode,
@@ -61,6 +62,8 @@ import {
 
 // ─── Game state ─────────────────────────────────────────────────
 let grid;
+let activeCols = GRID_COLS;  // may shrink for puzzle grids
+let activeRows = GRID_ROWS;
 let state = 'idle';  // 'idle' | 'selected' | 'rotating' | 'cascading' | 'gameover'
 let isPaused = false;
 let selectedCluster = null;
@@ -96,8 +99,10 @@ registerPuzzleCallbacks(
     moveCount = 0;
     resetScore();
     grid = puzzleGrid;
+    activeCols = cols;
+    activeRows = rows;
+    setActiveGridSize(cols, rows);
     state = 'idle';
-    requestRedraw();
   },
   // onEnd: freeze input when puzzle ends
   (reason) => {
@@ -372,6 +377,9 @@ if (savedState) {
 } else {
   resetScore();
   grid = createGrid();
+  activeCols = GRID_COLS;
+  activeRows = GRID_ROWS;
+  setActiveGridSize(GRID_COLS, GRID_ROWS);
   state = 'idle';
 }
 
@@ -493,19 +501,19 @@ function trySelect() {
   const hex = pixelToHex(clickPos.x, clickPos.y, originX, originY);
 
   // Check if the clicked hex is a black pearl → Y-shape selection
-  if (hex.col >= 0 && hex.col < GRID_COLS &&
-      hex.row >= 0 && hex.row < GRID_ROWS &&
+  if (hex.col >= 0 && hex.col < activeCols &&
+      hex.row >= 0 && hex.row < activeRows &&
       grid[hex.col]?.[hex.row]?.special === 'blackpearl') {
     // Select a Y-shape: pearl center + 3 alternating neighbors
     const nbrs = getNeighbors(hex.col, hex.row);
     const inBoundsNbrs = nbrs.filter(n =>
-      n.col >= 0 && n.col < GRID_COLS && n.row >= 0 && n.row < GRID_ROWS
+      n.col >= 0 && n.col < activeCols && n.row >= 0 && n.row < activeRows
     );
     if (inBoundsNbrs.length >= 3) {
       // Pick alternating neighbors (every other one) for Y-shape
       // Use even-indexed neighbors: 0, 2, 4 for one Y, 1, 3, 5 for inverted
       const yHexes = [nbrs[0], nbrs[2], nbrs[4]].filter(n =>
-        n.col >= 0 && n.col < GRID_COLS && n.row >= 0 && n.row < GRID_ROWS
+        n.col >= 0 && n.col < activeCols && n.row >= 0 && n.row < activeRows
       );
       if (yHexes.length === 3) {
         pearlCenter = { col: hex.col, row: hex.row };
@@ -521,12 +529,12 @@ function trySelect() {
   }
 
   // Check if the clicked hex is a starflower → ring selection
-  if (hex.col >= 0 && hex.col < GRID_COLS &&
-      hex.row >= 0 && hex.row < GRID_ROWS &&
+  if (hex.col >= 0 && hex.col < activeCols &&
+      hex.row >= 0 && hex.row < activeRows &&
       grid[hex.col]?.[hex.row]?.special === 'starflower') {
     const nbrs = getNeighbors(hex.col, hex.row);
     const allInBounds = nbrs.every(n =>
-      n.col >= 0 && n.col < GRID_COLS && n.row >= 0 && n.row < GRID_ROWS
+      n.col >= 0 && n.col < activeCols && n.row >= 0 && n.row < activeRows
     );
     if (allInBounds) {
       flowerCenter = { col: hex.col, row: hex.row };
@@ -542,9 +550,9 @@ function trySelect() {
 
   // Normal 3-hex cluster selection
   const cluster = findClusterAtPixel(
-    clickPos.x, clickPos.y, 
-    originX, originY, 
-    GRID_COLS, GRID_ROWS
+    clickPos.x, clickPos.y,
+    originX, originY,
+    activeCols, activeRows
   );
   if (cluster) {
     flowerCenter = null;
@@ -609,6 +617,9 @@ function resetBoardForNewMode() {
     resetScore();
     resetChain();
     grid = createGrid();
+  activeCols = GRID_COLS;
+  activeRows = GRID_ROWS;
+  setActiveGridSize(GRID_COLS, GRID_ROWS);
     moveCount = 0;
   }
   state = 'idle';
@@ -645,8 +656,8 @@ async function animateRotation(clockwise) {
     // We hack the old findMatchesForMode by changing to `findMatchesForMode(grid, GRID_COLS, GRID_ROWS, matchType)`?
     // main.js imports `findMatchesForMode` which usually looks at `getActiveMode().matchMode`.
     // Wait, findMatchesForMode currently looks up `getActiveMode().matchMode` on its own. Let's fix that.
-    // For now we'll just check `findMatchesForMode(grid, GRID_COLS, GRID_ROWS)`. We need to fix `board.js`.
-    const matches = findMatchesForMode(grid, GRID_COLS, GRID_ROWS);
+    // For now we'll just check `findMatchesForMode(grid, activeCols, activeRows)`. We need to fix `board.js`.
+    const matches = findMatchesForMode(grid, activeCols, activeRows);
     const sfResults = detectStarflowers(grid);
     const bpResults = detectBlackPearls(grid);
     const gpResults = detectGrandPoobahs(grid);
@@ -966,9 +977,9 @@ async function animateBlackPearlCreation(bpResults) {
     clearAllOverrides();
   }
 
-  applyGravity(grid);
+  applyGravity(grid, activeCols, activeRows);
   const mode = getActiveGameMode();
-  const filled = fillEmpty(grid, undefined, undefined, undefined, mode.hasBombs && bombQueued, { starflowers: 0, blackpearls: queuedBlackpearls });
+  const filled = fillEmpty(grid, activeCols, activeRows, undefined, mode.hasBombs && bombQueued, { starflowers: 0, blackpearls: queuedBlackpearls });
   if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
 }
 
@@ -1063,9 +1074,9 @@ async function animateGrandPoobahCreation(gpResults) {
     clearAllOverrides();
   }
 
-  applyGravity(grid);
+  applyGravity(grid, activeCols, activeRows);
   const mode = getActiveGameMode();
-  const filled = fillEmpty(grid, undefined, undefined, undefined, mode.hasBombs && bombQueued, { starflowers: 0, blackpearls: 0, grandpoobahs: queuedGrandPoobahs });
+  const filled = fillEmpty(grid, activeCols, activeRows, undefined, mode.hasBombs && bombQueued, { starflowers: 0, blackpearls: 0, grandpoobahs: queuedGrandPoobahs });
   if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
 
   handleGameWin();
@@ -1090,12 +1101,12 @@ async function handleOverAchiever() {
   const { originX, originY } = getOrigin();
   const floaters = [];
 
-  for (let c = 0; c < GRID_COLS; c++) {
-    for (let r = 0; r < GRID_ROWS; r++) {
+  for (let c = 0; c < activeCols; c++) {
+    for (let r = 0; r < activeRows; r++) {
       if (grid[c][r]) {
         const px = hexToPixel(c, r, originX, originY);
-        const dx = px.x - (originX + (GRID_COLS * 30));
-        const dy = px.y - (originY + (GRID_ROWS * 30));
+        const dx = px.x - (originX + (activeCols * 30));
+        const dy = px.y - (originY + (activeRows * 30));
         const angle = Math.atan2(dy, dx);
         const speed = 10 + Math.random() * 20;
 
@@ -1144,8 +1155,8 @@ async function postRotationCheck() {
     
     // Animate bomb shake on tick
     const bombCells = [];
-    for (let c = 0; c < GRID_COLS; c++) {
-      for (let r = 0; r < GRID_ROWS; r++) {
+    for (let c = 0; c < activeCols; c++) {
+      for (let r = 0; r < activeRows; r++) {
         if (grid[c][r]?.special === 'bomb') bombCells.push({ c, r });
       }
     }
@@ -1215,7 +1226,7 @@ async function postRotationCheck() {
       continue;
     }
 
-    const matches = findMatchesForMode(grid, GRID_COLS, GRID_ROWS);
+    const matches = findMatchesForMode(grid, activeCols, activeRows);
     if (matches.size > 0) {
       if (!isFirstStep) { advanceChain(); await delay(100); }
       isFirstStep = false;
@@ -1251,8 +1262,8 @@ async function postRotationCheck() {
   // Final check: did any un-cleared bombs expire?
   if (mode.hasBombs && mode.hasGameOver) {
     let exploded = false;
-    for (let c = 0; c < GRID_COLS; c++) {
-      for (let r = 0; r < GRID_ROWS; r++) {
+    for (let c = 0; c < activeCols; c++) {
+      for (let r = 0; r < activeRows; r++) {
          if (grid[c][r]?.special === 'bomb' && grid[c][r].bombTimer <= 0) {
              exploded = true;
              break;
@@ -1293,14 +1304,14 @@ async function handleGameOver(isSessionEnd = false) {
   const { originX, originY } = getOrigin();
   const floaters = [];
 
-  for (let c = 0; c < GRID_COLS; c++) {
-    for (let r = 0; r < GRID_ROWS; r++) {
+  for (let c = 0; c < activeCols; c++) {
+    for (let r = 0; r < activeRows; r++) {
       if (grid[c][r]) {
         const px = hexToPixel(c, r, originX, originY);
         
         // Create a floater that flies away from center
-        const dx = px.x - (originX + (GRID_COLS * 30)); // Rough center approx
-        const dy = px.y - (originY + (GRID_ROWS * 30));
+        const dx = px.x - (originX + (activeCols * 30)); // Rough center approx
+        const dy = px.y - (originY + (activeRows * 30));
         const angle = Math.atan2(dy, dx);
         const speed = 10 + Math.random() * 20;
 
@@ -1353,6 +1364,9 @@ function resetGame() {
   resetScore();
   resetChain();
   grid = createGrid();
+  activeCols = GRID_COLS;
+  activeRows = GRID_ROWS;
+  setActiveGridSize(GRID_COLS, GRID_ROWS);
   state = 'idle';
   moveCount = 0;
   bombQueued = false;
@@ -1514,10 +1528,10 @@ async function animateStarflowerCreation(sfResults) {
     clearAllOverrides();
   }
 
-  applyGravity(grid);
+  applyGravity(grid, activeCols, activeRows);
   {
     const mode = getActiveGameMode();
-    const filled = fillEmpty(grid, undefined, undefined, undefined, mode.hasBombs && bombQueued, { starflowers: queuedStarflowers, blackpearls: 0 });
+    const filled = fillEmpty(grid, activeCols, activeRows, undefined, mode.hasBombs && bombQueued, { starflowers: queuedStarflowers, blackpearls: 0 });
     if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
   }
 }
@@ -1525,7 +1539,7 @@ async function animateStarflowerCreation(sfResults) {
 async function startCascade() {
   state = 'cascading';
 
-  const matches = findMatchesForMode(grid, GRID_COLS, GRID_ROWS);
+  const matches = findMatchesForMode(grid, activeCols, activeRows);
   if (matches.size === 0) {
     // No match — just deselect
     selectedCluster = null;
@@ -1603,8 +1617,8 @@ async function runCascade(initialMatches) {
   
   // Color Nuke
   if (colorNukeColors.size > 0) {
-    for (let c = 0; c < GRID_COLS; c++) {
-      for (let r = 0; r < GRID_ROWS; r++) {
+    for (let c = 0; c < activeCols; c++) {
+      for (let r = 0; r < activeRows; r++) {
         if (grid[c][r] && colorNukeColors.has(grid[c][r].colorIndex)) {
             // Exclude starflowers/blackpearls from color nuke?
             // "clearing the bomb and all other tiles of that color"
@@ -1622,7 +1636,7 @@ async function runCascade(initialMatches) {
     const [c, r] = srcKey.split(',').map(Number);
     const nbrs = getNeighbors(c, r);
     for (const n of nbrs) {
-      if (n.col >= 0 && n.col < GRID_COLS && n.row >= 0 && n.row < GRID_ROWS) {
+      if (n.col >= 0 && n.col < activeCols && n.row >= 0 && n.row < activeRows) {
         // Explode neighbors (unless they are indestuctible?)
         if (grid[n.col][n.row] &&
             grid[n.col][n.row].special !== 'blackpearl' &&
@@ -1685,8 +1699,8 @@ async function runCascade(initialMatches) {
 
     // Board-wide ripple shake radiating outward from the explosion center
     await tween(280, t => {
-      for (let c = 0; c < GRID_COLS; c++) {
-        for (let r = 0; r < GRID_ROWS; r++) {
+      for (let c = 0; c < activeCols; c++) {
+        for (let r = 0; r < activeRows; r++) {
           if (!grid[c][r]) continue;
           const px = hexToPixel(c, r, originX, originY);
           const dist = Math.hypot(px.x - cx, px.y - cy);
@@ -1825,10 +1839,10 @@ async function runCascade(initialMatches) {
   }
 
   // Commit gravity and fill
-  applyGravity(grid);
+  applyGravity(grid, activeCols, activeRows);
   {
     const mode = getActiveGameMode();
-    const filled = fillEmpty(grid, undefined, undefined, undefined, mode.hasBombs && bombQueued);
+    const filled = fillEmpty(grid, activeCols, activeRows, undefined, mode.hasBombs && bombQueued);
     if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
   }
   requestRedraw();
@@ -1841,9 +1855,9 @@ async function runCascade(initialMatches) {
  */
 function computeFallDistances() {
   const result = [];
-  for (let c = 0; c < GRID_COLS; c++) {
-    let writeRow = GRID_ROWS - 1;
-    for (let r = GRID_ROWS - 1; r >= 0; r--) {
+  for (let c = 0; c < activeCols; c++) {
+    let writeRow = activeRows - 1;
+    for (let r = activeRows - 1; r >= 0; r--) {
       if (grid[c][r] !== null) {
         if (r !== writeRow) {
           result.push({
