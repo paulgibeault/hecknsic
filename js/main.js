@@ -20,7 +20,7 @@ import {
   applyGravity, fillEmpty,
 } from './board.js';
 import {
-  initRenderer, resize, drawFrame, getOrigin, getBoardScale, setPuzzleModeRenderer,
+  initRenderer, resize, drawFrame, getOrigin, getBoardScale,
   setCellOverride, clearCellOverride, clearAllOverrides,
   addFloatingPiece, removeFloatingPiece,
   spawnCreationParticles, spawnScorePopup,
@@ -110,13 +110,11 @@ registerPuzzleCallbacks(
     activeRows = rows;
     setActiveGridSize(cols, rows);
     state = 'idle';
-    setPuzzleModeRenderer(true);
     requestRedraw();
   },
   // onEnd: freeze input when puzzle ends
   (reason) => {
     state = 'gameover';
-    setPuzzleModeRenderer(false);
   }
 );
 
@@ -634,7 +632,6 @@ async function switchGameMode(newModeId) {
   if (newModeId === getActiveGameModeId()) return;
   saveGame();
   clearActivePuzzle();
-  setPuzzleModeRenderer(false);
   setActiveGameMode(newModeId);
   if (newModeId === 'chill') {
     document.getElementById('dropdown-btn-end-session').classList.remove('hidden');
@@ -1212,8 +1209,9 @@ async function postRotationCheck(gen = boardGeneration) {
 
   const mode = getActiveGameMode();
 
-  // Tick bomb timers and spawn new bombs only in modes that support them
-  if (mode.hasBombs) {
+  // Tick bomb timers in any mode that has them (arcade + puzzle pre-placed bombs)
+  // Only spawn new bombs in arcade (hasBombs). Puzzle uses pre-placed bombs only.
+  if (mode.ticksBombs) {
     tickBombs(grid);
 
     // Animate bomb shake on tick
@@ -1236,12 +1234,13 @@ async function postRotationCheck(gen = boardGeneration) {
       requestRedraw();
     }
 
-    // Difficulty scaling: dynamically calculate interval based on score
-    const currentScore = getScore();
-    let dynamicInterval = 15 - Math.floor(currentScore / 5000);
-    if (dynamicInterval < 4) dynamicInterval = 4;
-
-    if (moveCount % dynamicInterval === 0) bombQueued = true;
+    // Spawn new bombs only in arcade mode
+    if (mode.hasBombs) {
+      const currentScore = getScore();
+      let dynamicInterval = 15 - Math.floor(currentScore / 5000);
+      if (dynamicInterval < 4) dynamicInterval = 4;
+      if (moveCount % dynamicInterval === 0) bombQueued = true;
+    }
   }
 
   // Centralized Board State Resolution Logic
@@ -1331,7 +1330,8 @@ async function postRotationCheck(gen = boardGeneration) {
   }
 
   // Final check: did any un-cleared bombs expire?
-  if (mode.hasBombs && mode.hasGameOver) {
+  // ticksBombs covers both arcade (hasBombs) and puzzle (pre-placed bombs)
+  if (mode.ticksBombs && mode.hasGameOver) {
     let exploded = false;
     for (let c = 0; c < activeCols; c++) {
       for (let r = 0; r < activeRows; r++) {

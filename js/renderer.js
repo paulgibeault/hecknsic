@@ -18,7 +18,6 @@ let ctx;
 let canvasW, canvasH;   // physical CSS pixel dimensions
 let originX, originY;   // hex grid origin in logical (design) space
 let boardScale = 1;     // scale applied to fit the board on small screens
-let _puzzleMode = false; // when true, bomb timers are static — hide the countdown number
 let activeGridCols = GRID_COLS;  // current grid dimensions (may differ for puzzles)
 let activeGridRows = GRID_ROWS;
 
@@ -26,8 +25,7 @@ let isDirty = true;
 export function requestRedraw() { isDirty = true; }
 export function clearDirty() { isDirty = false; }
 export function getIsDirty() { return isDirty; }
-/** Tell renderer whether we're in puzzle mode (suppresses bomb countdown numbers). */
-export function setPuzzleModeRenderer(enabled) { _puzzleMode = enabled; }
+
 
 export function hasActiveRendererAnimations() {
   return creationParticles.length > 0 ||
@@ -833,9 +831,8 @@ function drawSpecialIndicator(cx, cy, radius, type, alpha = 1, bombTimer, colorI
       ctx.lineWidth = 2;
       ctx.stroke();
 
-      // Timer number (perfectly centered on the tile).
-      // Hidden in puzzle mode — bomb timers don't tick, so showing the number would confuse players.
-      if (bombTimer !== undefined && !_puzzleMode) {
+      // Timer number (perfectly centered on the tile)
+      if (bombTimer !== undefined) {
         ctx.fillStyle = isLow ? '#FF4040' : colorData.light;
         ctx.font = `bold ${radius * 1.4}px "Segoe UI", system-ui, sans-serif`;
         ctx.textAlign = 'center';

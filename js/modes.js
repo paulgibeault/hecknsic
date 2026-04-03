@@ -3,12 +3,11 @@
  */
 
 const GAME_MODES = {
-  arcade: { id: 'arcade', label: 'Arcade', hasBombs: true,  hasGameOver: true,  isPuzzle: false },
-  chill:  { id: 'chill',  label: 'Chill',  hasBombs: false, hasGameOver: false, isPuzzle: false },
-  // Puzzle mode: hasBombs=false means tickBombs() is never called — bomb timers are static
-  // puzzle design tools, not countdowns. The renderer is told to hide the timer number
-  // via isPuzzle so players aren't confused by a number that never changes.
-  puzzle: { id: 'puzzle', label: 'Puzzle', hasBombs: false, hasGameOver: true,  isPuzzle: true  },
+  // hasBombs: spawns new bombs during play and ticks existing ones
+  // ticksBombs: ticks existing bombs each move (puzzle mode uses pre-placed bombs, no spawning)
+  arcade: { id: 'arcade', label: 'Arcade', hasBombs: true,  ticksBombs: true,  hasGameOver: true,  isPuzzle: false },
+  chill:  { id: 'chill',  label: 'Chill',  hasBombs: false, ticksBombs: false, hasGameOver: false, isPuzzle: false },
+  puzzle: { id: 'puzzle', label: 'Puzzle', hasBombs: false, ticksBombs: true,  hasGameOver: true,  isPuzzle: true  },
 };
 
 // Line match mode removed — preserved at git tag feature/line-match-mode
