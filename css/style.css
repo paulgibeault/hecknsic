@@ -13,6 +13,7 @@ html {
 html, body {
   width: 100%;
   height: 100%;
+  height: 100dvh;  /* dynamic viewport: fills full screen on iOS including safe areas */
   overflow: hidden;
   background: radial-gradient(circle at 50% 0%, #1a1b35 0%, #111218 50%, #0a0b0e 100%);
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
