@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -36,6 +36,44 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Bump patch version
+        id: bump
+        run: |
+          # Read current version from package.json
+          CURRENT=$(node -p "require('./package.json').version")
+          # Bump patch (1.2.0 → 1.2.1)
+          NEW=$(node -e "
+            const [maj,min,pat] = '$CURRENT'.split('.').map(Number);
+            console.log(maj+'.'+min+'.'+(pat+1));
+          ")
+          echo "new_version=$NEW" >> $GITHUB_OUTPUT
+          # Update package.json
+          node -e "
+            const fs = require('fs');
+            const p = JSON.parse(fs.readFileSync('package.json'));
+            p.version = '$NEW';
+            fs.writeFileSync('package.json', JSON.stringify(p, null, 2)+'\n');
+          "
+          # Update manifest.json start_url
+          node -e "
+            const fs = require('fs');
+            const m = JSON.parse(fs.readFileSync('manifest.json'));
+            m.start_url = './index.html?v=$NEW';
+            fs.writeFileSync('manifest.json', JSON.stringify(m, null, 2)+'\n');
+          "
+          # Update version display in index.html
+          sed -i "s/v[0-9]\+\.[0-9]\+\.[0-9]\+/v$NEW/g" index.html
+          echo "Bumped $CURRENT → $NEW"
+
+      - name: Commit version bump
+        run: |
+          git config user.name "geebs-bot[bot]"
+          git config user.email "geebs-bot[bot]@users.noreply.github.com"
+          git add package.json manifest.json index.html
+          git diff --cached --quiet || git commit -m "chore: auto-bump to v${{ steps.bump.outputs.new_version }} [skip ci]"
+          git push
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
