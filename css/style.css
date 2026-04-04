@@ -7,7 +7,7 @@
 
 /* ─── Body ───────────────────────────────────────────────────── */
 html {
-  background: #1a1b35;  /* solid color iOS uses for status bar — must match gradient top */
+  background: #0a0b0e;  /* solid color for iOS safe areas (top + bottom) */
 }
 
 html, body {
@@ -37,7 +37,7 @@ html, body {
 /* ─── Controls ───────────────────────────────────────────────── */
 .controls {
   position: absolute;
-  bottom: 24px;
+  bottom: max(24px, env(safe-area-inset-bottom, 24px));
   right: 24px; /* default: right-handed */
   display: flex;
   flex-direction: row;
