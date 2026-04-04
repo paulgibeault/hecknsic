@@ -71,7 +71,9 @@ const COMBO_FADE_MS    = 1200;
 
 export function initRenderer(canvas) {
   ctx = canvas.getContext('2d');
-  resize(canvas);
+  // Defer initial resize so the HUD has time to lay out — 
+  // getBoundingClientRect() on the HUD returns 0 if called synchronously on load.
+  requestAnimationFrame(() => resize(canvas));
 }
 
 export function resize(canvas) {
@@ -93,8 +95,10 @@ function recalcOrigin() {
 
   // Space reserved for HUD (top) and rotation controls (bottom).
   // Measure the actual rendered HUD height so the board sits flush beneath it.
+  // Add 8px buffer so the top row of hexes is never clipped by the header.
   const hudEl = document.getElementById('game-hud');
-  const HUD_H = hudEl ? hudEl.getBoundingClientRect().height : 60;
+  const hudRect = hudEl ? hudEl.getBoundingClientRect() : null;
+  const HUD_H = (hudRect && hudRect.height > 0 ? hudRect.height : 60) + 8;
   
   // If we have a fine pointer (mouse/trackpad) and a wide screen, controls are hidden via CSS.
   // We can free up that vertical space for the board.
