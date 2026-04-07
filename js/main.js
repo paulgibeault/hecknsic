@@ -52,7 +52,7 @@ import {
 } from './specials.js';
 import {
   saveGameState, loadGameState, clearGameState,
-  addHighScore, getHighScores, loadSettings
+  addHighScore, getHighScores, loadSettings, saveSettings
 } from './storage.js';
 import {
   initPuzzleModeUI, showPuzzleSelector, registerPuzzleCallbacks,
