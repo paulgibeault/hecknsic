@@ -1,7 +1,7 @@
 {
   "name": "Hecknsic",
   "short_name": "Hecknsic",
-  "start_url": "./index.html?v=1.2.2",
+  "start_url": "./index.html?v=1.2.3",
   "display": "standalone",
   "background_color": "#0a0b0e",
   "theme_color": "#1a1b35",
