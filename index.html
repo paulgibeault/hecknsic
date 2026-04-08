@@ -9,7 +9,7 @@
   <meta name="description" content="A vibrant hex-puzzle game inspired by the classic Hecknsic HD — rotate clusters, chain combos, chase the high score.">
   <meta name="theme-color" content="#1a1b35">
   <link rel="manifest" href="manifest.json">
-  <link rel="apple-touch-icon" href="img/logo_header.png">
+  <link rel="apple-touch-icon" href="img/icon-192.png">
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/overlays.css">
 </head>
@@ -401,5 +401,13 @@
   </div>
 
   <script type="module" src="js/main.js?v=4"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .catch((err) => console.warn('SW registration failed:', err));
+      });
+    }
+  </script>
 </body>
 </html>
