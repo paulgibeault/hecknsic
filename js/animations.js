@@ -334,8 +334,8 @@ export async function animateBlackPearlCreation(ctx, bpResults) {
 
   applyGravity(ctx.grid, ctx.activeCols, ctx.activeRows);
   const mode = getActiveGameMode();
-  const filled = fillEmpty(ctx.grid, ctx.activeCols, ctx.activeRows, undefined, mode.hasBombs && bombQueued, { starflowers: 0, blackpearls: queuedBlackpearls }, mode.isPuzzle);
-  if (mode.hasBombs && bombQueued && filled.length > 0) ctx.setBombQueued(false);
+  const filled = fillEmpty(ctx.grid, ctx.activeCols, ctx.activeRows, undefined, mode.hasBombs && ctx.bombQueued, { starflowers: 0, blackpearls: queuedBlackpearls }, mode.isPuzzle);
+  if (mode.hasBombs && ctx.bombQueued && filled.length > 0) ctx.setBombQueued(false);
 }
 
 export async function animateGrandPoobahCreation(ctx, gpResults) {
@@ -435,17 +435,17 @@ export async function animateGrandPoobahCreation(ctx, gpResults) {
 
   applyGravity(ctx.grid, ctx.activeCols, ctx.activeRows);
   const mode = getActiveGameMode();
-  const filled = fillEmpty(ctx.grid, ctx.activeCols, ctx.activeRows, undefined, mode.hasBombs && bombQueued, { starflowers: 0, blackpearls: 0, grandpoobahs: queuedGrandPoobahs }, mode.isPuzzle);
-  if (mode.hasBombs && bombQueued && filled.length > 0) ctx.setBombQueued(false);
+  const filled = fillEmpty(ctx.grid, ctx.activeCols, ctx.activeRows, undefined, mode.hasBombs && ctx.bombQueued, { starflowers: 0, blackpearls: 0, grandpoobahs: queuedGrandPoobahs }, mode.isPuzzle);
+  if (mode.hasBombs && ctx.bombQueued && filled.length > 0) ctx.setBombQueued(false);
 
-  handleGameWin();
+  ctx.handleGameWin();
 }
 
 export async function handleOverAchiever(ctx) {
   ctx.setState('gameover');
-  const combinedId = getCombinedModeId();
-  clearGameState(combinedId);
-  addHighScore(combinedId, getScore(), 'over-achiever');
+  const combinedId = ctx.getCombinedModeId();
+  ctx.clearGameState(combinedId);
+  ctx.addHighScore(combinedId, getScore(), 'over-achiever');
 
   document.getElementById('go-oa-score').textContent = getScore().toLocaleString();
   document.getElementById('go-oa-combo').textContent = `x${getComboCount()}`;
@@ -499,9 +499,9 @@ export async function handleOverAchiever(ctx) {
 
 export async function handleGameOver(ctx, isSessionEnd = false) {
   ctx.setState('gameover');
-  const combinedId = getCombinedModeId();
-  clearGameState(combinedId);
-  addHighScore(combinedId, getScore());
+  const combinedId = ctx.getCombinedModeId();
+  ctx.clearGameState(combinedId);
+  ctx.addHighScore(combinedId, getScore());
   console.log('Game/Session Over. High score saved.');
 
   // 1. Show Game Over Modal (only if not a peaceful chill session end)
@@ -713,8 +713,8 @@ export async function animateStarflowerCreation(ctx, sfResults) {
   applyGravity(ctx.grid, ctx.activeCols, ctx.activeRows);
   {
     const mode = getActiveGameMode();
-    const filled = fillEmpty(ctx.grid, ctx.activeCols, ctx.activeRows, undefined, mode.hasBombs && bombQueued, { starflowers: queuedStarflowers, blackpearls: 0 }, mode.isPuzzle);
-    if (mode.hasBombs && bombQueued && filled.length > 0) ctx.setBombQueued(false);
+    const filled = fillEmpty(ctx.grid, ctx.activeCols, ctx.activeRows, undefined, mode.hasBombs && ctx.bombQueued, { starflowers: queuedStarflowers, blackpearls: 0 }, mode.isPuzzle);
+    if (mode.hasBombs && ctx.bombQueued && filled.length > 0) ctx.setBombQueued(false);
   }
 }
 
@@ -987,8 +987,8 @@ export async function runCascade(ctx, initialMatches, gen = ctx.boardGeneration)
   applyGravity(ctx.grid, ctx.activeCols, ctx.activeRows);
   {
     const mode = getActiveGameMode();
-    const filled = fillEmpty(ctx.grid, ctx.activeCols, ctx.activeRows, undefined, mode.hasBombs && bombQueued, undefined, mode.isPuzzle);
-    if (mode.hasBombs && bombQueued && filled.length > 0) ctx.setBombQueued(false);
+    const filled = fillEmpty(ctx.grid, ctx.activeCols, ctx.activeRows, undefined, mode.hasBombs && ctx.bombQueued, undefined, mode.isPuzzle);
+    if (mode.hasBombs && ctx.bombQueued && filled.length > 0) ctx.setBombQueued(false);
   }
   requestRedraw();
 

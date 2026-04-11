@@ -82,7 +82,11 @@ export const getAnimationContext = () => ({
   get moveCount() { return moveCount; },
   get bombQueued() { return bombQueued; },
   setBombQueued(q) { bombQueued = q; },
-  resetGame: () => resetGame()
+  resetGame: () => resetGame(),
+  handleGameWin: () => handleGameWin(),
+  getCombinedModeId,
+  clearGameState,
+  addHighScore,
 });
 // ─── Game state ─────────────────────────────────────────────────
 let grid;
@@ -353,7 +357,7 @@ document.getElementById('btn-confirm-end').addEventListener('click', (e) => {
   requestRedraw();
   
   // End session logic: trigger explosion sequence
-  handleGameOver(true);
+  handleGameOver(getAnimationContext(), true);
 });
 
 function showHighScores() {
@@ -740,6 +744,7 @@ async function animateRotation(clockwise) {
   if (state !== 'selected') return;
   state = 'rotating';
   const gen = boardGeneration;
+  const ctx = getAnimationContext();
 
   const { originX, originY } = getOrigin();
 
@@ -752,11 +757,11 @@ async function animateRotation(clockwise) {
   for (let step = 0; step < maxSteps; step++) {
     // 1. Animate one step
     if (flowerCenter) {
-      await animateRingRotation(clockwise, originX, originY);
+      await animateRingRotation(ctx, clockwise, originX, originY);
     } else if (pearlCenter) {
-      await animateYRotation(clockwise, originX, originY);
+      await animateYRotation(ctx, clockwise, originX, originY);
     } else {
-      await animateClusterRotation(clockwise, originX, originY);
+      await animateClusterRotation(ctx, clockwise, originX, originY);
     }
     if (boardGeneration !== gen) return; // board was replaced (e.g. restart)
 
@@ -791,6 +796,7 @@ async function postRotationCheck(gen) {
   // Guard: callers must pass gen so stale async chains bail correctly.
   if (gen === undefined) gen = boardGeneration;
   moveCount++;
+  const ctx = getAnimationContext();
 
   const mode = getActiveGameMode();
 
@@ -839,7 +845,7 @@ async function postRotationCheck(gen) {
     // Check for Grand Poobah Ring (Over-Achiever) before anything else
     const gpRing = detectGrandPoobahRing(grid);
     if (gpRing.length > 0) {
-      await handleOverAchiever();
+      await handleOverAchiever(ctx);
       return;
     }
 
@@ -849,7 +855,7 @@ async function postRotationCheck(gen) {
       if (boardGeneration !== gen) return;
       isFirstStep = false;
       state = 'cascading';
-      await animateGrandPoobahCreation(gpResults);
+      await animateGrandPoobahCreation(ctx, gpResults);
       if (boardGeneration !== gen) return;
       boardStable = false;
       continue;
@@ -861,7 +867,7 @@ async function postRotationCheck(gen) {
       if (boardGeneration !== gen) return;
       isFirstStep = false;
       state = 'cascading';
-      await animateBlackPearlCreation(bpResults);
+      await animateBlackPearlCreation(ctx, bpResults);
       if (boardGeneration !== gen) return;
       boardStable = false;
       continue;
@@ -873,7 +879,7 @@ async function postRotationCheck(gen) {
       if (boardGeneration !== gen) return;
       isFirstStep = false;
       state = 'cascading';
-      await animateStarflowerCreation(sfResults);
+      await animateStarflowerCreation(ctx, sfResults);
       if (boardGeneration !== gen) return;
       boardStable = false;
       continue;
@@ -885,7 +891,7 @@ async function postRotationCheck(gen) {
       if (boardGeneration !== gen) return;
       isFirstStep = false;
       state = 'cascading';
-      await runCascade(matches, gen);
+      await runCascade(ctx, matches, gen);
       if (boardGeneration !== gen) return;
       boardStable = false;
       continue;
@@ -927,7 +933,7 @@ async function postRotationCheck(gen) {
       }
     }
     if (exploded) {
-       handleGameOver(false);
+       handleGameOver(ctx, false);
        return;
     }
   }
@@ -981,7 +987,7 @@ async function startCascade() {
     return;
   }
 
-  await runCascade(matches);
+  await runCascade(getAnimationContext(), matches);
 
   selectedCluster = null;
   state = 'idle';
