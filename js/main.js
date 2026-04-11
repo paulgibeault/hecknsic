@@ -38,7 +38,7 @@ import { hexToPixel, getNeighbors, pixelToHex, findClusterAtPixel } from './hex-
 import {
   initInput, getHoverCluster, consumeAction, getLastClickPos, triggerAction,
   setKeyBindings, clearPendingAction, setClusterCenterPx,
-} from './input.js?v=3';
+} from './input.js';
 import { tween, updateTweens, easeOutCubic, easeOutBounce, hasActiveTweens, linear } from './tween.js';
 import {
   resetScore, awardMatch, advanceChain, resetChain,
