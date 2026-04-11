@@ -1,5 +1,10 @@
 // Hecknsic Service Worker — offline-first cache
-const CACHE_VERSION = 'hecknsic-v1.2.3';
+const APP_VERSION = '1.2.3';
+const CACHE_VERSION = `hecknsic-v${APP_VERSION}`;
+
+// WARNING: This list is manually maintained. When adding new static assets
+// (JS files, CSS files, images, sounds, etc.), update this list too or
+// offline mode will silently break for those assets.
 const STATIC_ASSETS = [
   './',
   './index.html',
@@ -47,7 +52,10 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Cache-first for static assets, network-first for everything else
+  // Cache-first for all GET requests — serves static assets offline.
+  // Note: dynamic fetches (e.g. future API calls) will also be cached on first
+  // load and served stale on subsequent loads. Add URL filtering here if that
+  // becomes a concern.
   if (event.request.method !== 'GET') return;
 
   event.respondWith(
