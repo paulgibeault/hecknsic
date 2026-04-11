@@ -434,7 +434,11 @@ function syncHUDForMode(modeId) {
   }
 }
 
-window.addEventListener('resize', () => resize(canvas));
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => resize(canvas), 150);
+});
 
 // Restore active mode then load per-mode saved state
 loadActiveMode();
