@@ -365,22 +365,38 @@ function showHighScores() {
     modeLabelEl.textContent = `${getActiveGameMode().label}`; // match mode label removed
   }
   
+  list.innerHTML = '';
+
   if (scores.length === 0) {
-    list.innerHTML = '<li>No scores yet!</li>';
+    const li = document.createElement('li');
+    li.textContent = 'No scores yet!';
+    list.appendChild(li);
     return;
   }
 
-  list.innerHTML = scores.map((s, i) => {
+  scores.forEach((s, i) => {
     const date = new Date(s.date).toLocaleDateString();
     const trophy = s.achievement ? ' 🏆' : '';
-    return `
-      <li>
-        <span class="rank">#${i + 1}</span>
-        <span class="score">${s.score.toLocaleString()}${trophy}</span>
-        <span class="date">${date}</span>
-      </li>
-    `;
-  }).join('');
+    
+    const li = document.createElement('li');
+    
+    const rankSpan = document.createElement('span');
+    rankSpan.className = 'rank';
+    rankSpan.textContent = `#${i + 1}`;
+    li.appendChild(rankSpan);
+    
+    const scoreSpan = document.createElement('span');
+    scoreSpan.className = 'score';
+    scoreSpan.textContent = `${s.score.toLocaleString()}${trophy}`;
+    li.appendChild(scoreSpan);
+    
+    const dateSpan = document.createElement('span');
+    dateSpan.className = 'date';
+    dateSpan.textContent = date;
+    li.appendChild(dateSpan);
+    
+    list.appendChild(li);
+  });
 }
 
 function updateControlsVisibility() {
