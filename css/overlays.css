@@ -142,8 +142,10 @@
 }
 
 .high-scores-list li {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 32px 1fr 48px 90px;
+  align-items: center;
+  gap: 4px;
   padding: 10px;
   border-bottom: 1px solid rgba(255,255,255,0.1);
 }
@@ -153,23 +155,21 @@
 .high-scores-list .rank {
   font-weight: bold;
   color: #2080E0;
-  width: 30px;
 }
 .high-scores-list .score {
   font-weight: bold;
   color: #fff;
-  flex: 1;
   text-align: right;
 }
 .high-scores-list .combo {
   color: #FFD740;
   font-size: 0.85em;
-  width: 36px;
-  text-align: right;
+  text-align: center;
 }
 .high-scores-list .date {
   color: #888;
-  font-size: 0.9em;
+  font-size: 0.85em;
+  text-align: right;
 }
 /* Game Over Modal */
 .gameover-message {
