@@ -142,8 +142,10 @@
 }
 
 .high-scores-list li {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 28px 1fr auto 44px 80px;
+  align-items: center;
+  gap: 6px;
   padding: 10px;
   border-bottom: 1px solid rgba(255,255,255,0.1);
 }
@@ -153,16 +155,90 @@
 .high-scores-list .rank {
   font-weight: bold;
   color: #2080E0;
-  width: 30px;
+}
+.high-scores-list .name {
+  color: #b0b8d0;
+  font-size: 0.85em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .high-scores-list .score {
   font-weight: bold;
   color: #fff;
+  text-align: right;
+}
+.high-scores-list .combo {
+  color: #FFD740;
+  font-size: 0.85em;
+  text-align: center;
 }
 .high-scores-list .date {
   color: #888;
-  font-size: 0.9em;
+  font-size: 0.85em;
+  text-align: right;
 }
+
+/* Header row */
+.high-scores-list .hs-header {
+  border-bottom: 1px solid rgba(255,255,255,0.2);
+  padding: 6px 10px;
+}
+.high-scores-list .hs-header span {
+  font-size: 0.7em;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #606080;
+  font-weight: 600;
+}
+.high-scores-list .hs-header span:nth-child(3) { text-align: right; }
+.high-scores-list .hs-header span:nth-child(4) { text-align: center; }
+.high-scores-list .hs-header span:nth-child(5) { text-align: right; }
+
+/* Top score highlight */
+.high-scores-list .hs-top {
+  background: rgba(255, 215, 0, 0.06);
+}
+.high-scores-list .hs-top .score {
+  color: #FFD740;
+  text-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+}
+
+/* Achievement row */
+.high-scores-list .hs-achievement {
+  background: rgba(255, 215, 0, 0.04);
+}
+
+/* Name input on end-of-game modals */
+.hs-name-row {
+  margin: 16px 0;
+  text-align: center;
+}
+.hs-name-row label {
+  display: block;
+  font-size: 0.7em;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #606080;
+  margin-bottom: 6px;
+}
+.hs-name-input {
+  width: 100%;
+  max-width: 220px;
+  padding: 8px 12px;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  background: rgba(255,255,255,0.06);
+  color: #fff;
+  font-size: 1rem;
+  text-align: center;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.hs-name-input::placeholder { color: #555; }
+.hs-name-input:focus { border-color: rgba(255,255,255,0.35); }
+
 /* Game Over Modal */
 .gameover-message {
   font-size: 1.2rem;

@@ -12,12 +12,21 @@ import {
 } from './renderer.js';
 import { getActiveGameMode } from './modes.js';
 import { hexToPixel, getNeighbors } from './hex-math.js';
-import { tween, easeOutCubic, easeOutBounce } from './tween.js';
-import { awardMatch, advanceChain, getDisplayScore, getChainLevel, getScore, getComboCount } from './score.js';
+import { tween, easeOutCubic, easeOutBounce, linear } from './tween.js';
+import { awardMatch, advanceChain, getDisplayScore, getChainLevel, getScore, getComboCount, getMaxCombo } from './score.js';
 import {
   detectStarflowersAtCleared, detectBlackPearls, detectMultiplierClusters
 } from './specials.js';
 import { onStarflowerCreated } from './puzzle-mode.js';
+import { getPlayerName } from './storage.js';
+
+function prepopulateNameInputs() {
+  const name = getPlayerName();
+  for (const id of ['go-name', 'gw-name', 'oa-name', 'es-name']) {
+    const el = document.getElementById(id);
+    if (el) el.value = name;
+  }
+}
 
 
 /** Animate 3-hex cluster rotation (original pop-thunk) */
@@ -445,10 +454,11 @@ export async function handleOverAchiever(ctx) {
   ctx.setState('gameover');
   const combinedId = ctx.getCombinedModeId();
   ctx.clearGameState(combinedId);
-  ctx.addHighScore(combinedId, getScore(), 'over-achiever');
+  ctx.addHighScore(combinedId, getScore(), 'over-achiever', getMaxCombo());
 
   document.getElementById('go-oa-score').textContent = getScore().toLocaleString();
-  document.getElementById('go-oa-combo').textContent = `x${getComboCount()}`;
+  document.getElementById('go-oa-combo').textContent = `x${getMaxCombo()}`;
+  prepopulateNameInputs();
   document.getElementById('modal-over-achiever').classList.remove('hidden');
 
   // Board explosion (reuse game-over explosion aesthetic)
@@ -501,7 +511,7 @@ export async function handleGameOver(ctx, isSessionEnd = false) {
   ctx.setState('gameover');
   const combinedId = ctx.getCombinedModeId();
   ctx.clearGameState(combinedId);
-  ctx.addHighScore(combinedId, getScore());
+  ctx.addHighScore(combinedId, getScore(), undefined, getMaxCombo());
   console.log('Game/Session Over. High score saved.');
 
   // 1. Show Game Over Modal (only if not a peaceful chill session end)
@@ -516,7 +526,8 @@ export async function handleGameOver(ctx, isSessionEnd = false) {
     }
 
     document.getElementById('go-score').textContent = getScore().toLocaleString();
-    document.getElementById('go-combo').textContent = `x${getComboCount()}`;
+    document.getElementById('go-combo').textContent = `x${getMaxCombo()}`;
+    prepopulateNameInputs();
     document.getElementById('modal-gameover').classList.remove('hidden');
   }
 
