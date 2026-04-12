@@ -11,9 +11,9 @@ import {
   getOrigin
 } from './renderer.js';
 import { getActiveGameMode } from './modes.js';
-import { hexToPixel } from './hex-math.js';
+import { hexToPixel, getNeighbors } from './hex-math.js';
 import { tween, easeOutCubic, easeOutBounce } from './tween.js';
-import { awardMatch, advanceChain, getDisplayScore } from './score.js';
+import { awardMatch, advanceChain, getDisplayScore, getChainLevel, getScore, getComboCount } from './score.js';
 import {
   detectStarflowersAtCleared, detectBlackPearls, detectMultiplierClusters
 } from './specials.js';

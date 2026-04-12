@@ -62,6 +62,12 @@ let comboTierShowTime = 0;  // timestamp when current tier first appeared (for p
 // ─── Score popup state ───────────────────────────────────────────
 let scorePopups = [];  // { x, y, vy, text, life, maxLife, fontSize, color }
 
+// ─── Cached board background ─────────────────────────────────────
+// Offscreen canvas holding the board background (shadow + fill + stroke).
+// Redrawn only when grid size or canvas dimensions change, avoiding the
+// expensive per-frame shadowBlur computation that kills iOS Safari perf.
+let bgCache = null;  // { canvas, x, y, w, h, cols, rows, canvasW, canvasH, boardScale }
+
 // Label tier thresholds (by combo count)
 const COMBO_THRESHOLDS = [2,  5,   7,  10,  12,  15];
 const COMBO_LABELS     = ['COMBO', 'NICE!', 'SWEET!', 'AMAZING!', 'SICK!', 'HECKN SIC!'];
@@ -965,23 +971,47 @@ function drawBoardBackground() {
   const w = gridPixelW + padding;
   const h = gridPixelH + padding;
 
-  ctx.fillStyle = BOARD_BG_COLOR;
-  
-  // Ambient neon/shadow drop off the board
-  ctx.save();
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
-  ctx.shadowBlur = 40;
-  ctx.shadowOffsetX = 0;
-  ctx.shadowOffsetY = 10;
-  roundRect(ctx, x, y, w, h, 12);
-  ctx.fill();
-  ctx.restore();
+  // Cache the board background (expensive shadowBlur) to an offscreen canvas.
+  // Only regenerate when grid dimensions, canvas size, or scale change.
+  const needsRegen = !bgCache
+    || bgCache.cols !== activeGridCols || bgCache.rows !== activeGridRows
+    || bgCache.canvasW !== canvasW || bgCache.canvasH !== canvasH
+    || bgCache.boardScale !== boardScale;
 
-  // Highlight stroke
-  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-  ctx.lineWidth = 1.5;
-  roundRect(ctx, x, y, w, h, 12);
-  ctx.stroke();
+  if (needsRegen) {
+    // Margin around the rect to accommodate the shadow blur + offset
+    const margin = 60;
+    const offW = Math.ceil(w + margin * 2);
+    const offH = Math.ceil(h + margin * 2);
+
+    const off = document.createElement('canvas');
+    off.width = offW;
+    off.height = offH;
+    const offCtx = off.getContext('2d');
+
+    // Draw the shadowed fill at an offset so the shadow doesn't clip
+    offCtx.fillStyle = BOARD_BG_COLOR;
+    offCtx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+    offCtx.shadowBlur = 40;
+    offCtx.shadowOffsetX = 0;
+    offCtx.shadowOffsetY = 10;
+    roundRect(offCtx, margin, margin, w, h, 12);
+    offCtx.fill();
+
+    // Highlight stroke (no shadow)
+    offCtx.shadowColor = 'transparent';
+    offCtx.shadowBlur = 0;
+    offCtx.strokeStyle = 'rgba(255,255,255,0.08)';
+    offCtx.lineWidth = 1.5;
+    roundRect(offCtx, margin, margin, w, h, 12);
+    offCtx.stroke();
+
+    bgCache = { canvas: off, x, y, w, h, margin, offW, offH, cols: activeGridCols, rows: activeGridRows, canvasW, canvasH, boardScale };
+  }
+
+  // Blit the cached background — no per-frame shadow computation
+  ctx.drawImage(bgCache.canvas, 0, 0, bgCache.offW, bgCache.offH,
+    x - bgCache.margin, y - bgCache.margin, bgCache.offW, bgCache.offH);
 }
 
 function roundRect(ctx, x, y, w, h, r) {
