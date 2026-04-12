@@ -18,6 +18,15 @@ import {
   detectStarflowersAtCleared, detectBlackPearls, detectMultiplierClusters
 } from './specials.js';
 import { onStarflowerCreated } from './puzzle-mode.js';
+import { getPlayerName } from './storage.js';
+
+function prepopulateNameInputs() {
+  const name = getPlayerName();
+  for (const id of ['go-name', 'gw-name', 'oa-name', 'es-name']) {
+    const el = document.getElementById(id);
+    if (el) el.value = name;
+  }
+}
 
 
 /** Animate 3-hex cluster rotation (original pop-thunk) */
@@ -449,6 +458,7 @@ export async function handleOverAchiever(ctx) {
 
   document.getElementById('go-oa-score').textContent = getScore().toLocaleString();
   document.getElementById('go-oa-combo').textContent = `x${getMaxCombo()}`;
+  prepopulateNameInputs();
   document.getElementById('modal-over-achiever').classList.remove('hidden');
 
   // Board explosion (reuse game-over explosion aesthetic)
@@ -517,6 +527,7 @@ export async function handleGameOver(ctx, isSessionEnd = false) {
 
     document.getElementById('go-score').textContent = getScore().toLocaleString();
     document.getElementById('go-combo').textContent = `x${getMaxCombo()}`;
+    prepopulateNameInputs();
     document.getElementById('modal-gameover').classList.remove('hidden');
   }
 
