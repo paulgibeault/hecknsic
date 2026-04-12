@@ -13,7 +13,7 @@ import {
 import { getActiveGameMode } from './modes.js';
 import { hexToPixel, getNeighbors } from './hex-math.js';
 import { tween, easeOutCubic, easeOutBounce } from './tween.js';
-import { awardMatch, advanceChain, getDisplayScore, getChainLevel, getScore, getComboCount } from './score.js';
+import { awardMatch, advanceChain, getDisplayScore, getChainLevel, getScore, getComboCount, getMaxCombo } from './score.js';
 import {
   detectStarflowersAtCleared, detectBlackPearls, detectMultiplierClusters
 } from './specials.js';
@@ -448,7 +448,7 @@ export async function handleOverAchiever(ctx) {
   ctx.addHighScore(combinedId, getScore(), 'over-achiever');
 
   document.getElementById('go-oa-score').textContent = getScore().toLocaleString();
-  document.getElementById('go-oa-combo').textContent = `x${getComboCount()}`;
+  document.getElementById('go-oa-combo').textContent = `x${getMaxCombo()}`;
   document.getElementById('modal-over-achiever').classList.remove('hidden');
 
   // Board explosion (reuse game-over explosion aesthetic)
@@ -516,7 +516,7 @@ export async function handleGameOver(ctx, isSessionEnd = false) {
     }
 
     document.getElementById('go-score').textContent = getScore().toLocaleString();
-    document.getElementById('go-combo').textContent = `x${getComboCount()}`;
+    document.getElementById('go-combo').textContent = `x${getMaxCombo()}`;
     document.getElementById('modal-gameover').classList.remove('hidden');
   }
 

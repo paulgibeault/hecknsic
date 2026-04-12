@@ -49,7 +49,7 @@ import { tween, updateTweens, easeOutCubic, easeOutBounce, hasActiveTweens, line
 import {
   resetScore, awardMatch, advanceChain, resetChain,
   updateDisplayScore, restoreScore,
-  getScore, getDisplayScore, getChainLevel, getComboCount, isScoreAnimating
+  getScore, getDisplayScore, getChainLevel, getComboCount, getMaxCombo, isScoreAnimating
 } from './score.js';
 import {
   detectStarflowers, detectStarflowersAtCleared,
@@ -970,6 +970,7 @@ function saveGame() {
     displayScore: getDisplayScore(),
     chainLevel: getChainLevel(),
     comboCount: getComboCount(),
+    maxCombo: getMaxCombo(),
   });
 }
 
