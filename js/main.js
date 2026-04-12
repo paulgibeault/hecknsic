@@ -49,7 +49,7 @@ import { tween, updateTweens, easeOutCubic, easeOutBounce, hasActiveTweens, line
 import {
   resetScore, awardMatch, advanceChain, resetChain,
   updateDisplayScore, restoreScore,
-  getScore, getDisplayScore, getChainLevel, getComboCount, isScoreAnimating
+  getScore, getDisplayScore, getChainLevel, getComboCount, getMaxCombo, isScoreAnimating
 } from './score.js';
 import {
   detectStarflowers, detectStarflowersAtCleared,
@@ -58,7 +58,9 @@ import {
 } from './specials.js';
 import {
   saveGameState, loadGameState, clearGameState,
-  addHighScore, getHighScores, loadSettings, saveSettings
+  addHighScore, getHighScores, updateLatestHighScoreName,
+  getPlayerName, setPlayerName,
+  loadSettings, saveSettings
 } from './storage.js';
 import {
   initPuzzleModeUI, showPuzzleSelector, registerPuzzleCallbacks,
@@ -224,6 +226,7 @@ function guardedAction(btn, action) {
 // Game Over Modal bindings
 document.getElementById('btn-newgame').addEventListener('click', (e) => {
   e.stopPropagation();
+  saveNameFromInput('go-name');
   guardedAction(e.currentTarget, resetGame);
 });
 
@@ -316,6 +319,7 @@ document.getElementById('dropdown-btn-end-session').addEventListener('click', (e
   void content.offsetWidth; // trigger reflow
   content.classList.add('shake-animation');
   
+  prepopulateNameInputs();
   endSessionModal.classList.remove('hidden');
 });
 
@@ -330,6 +334,7 @@ document.getElementById('btn-cancel-end').addEventListener('click', (e) => {
 // Game Win Modal bindings
 document.getElementById('btn-continue-gamewin').addEventListener('click', (e) => {
   e.stopPropagation();
+  saveNameFromInput('gw-name');
   document.getElementById('modal-gamewin').classList.add('hidden');
   state = 'idle';
   isPaused = false;
@@ -338,12 +343,14 @@ document.getElementById('btn-continue-gamewin').addEventListener('click', (e) =>
 
 document.getElementById('btn-newgame-gamewin').addEventListener('click', (e) => {
   e.stopPropagation();
+  saveNameFromInput('gw-name');
   guardedAction(e.currentTarget, resetGame);
 });
 
 // Over-Achiever Modal binding
 document.getElementById('btn-newgame-oa').addEventListener('click', (e) => {
   e.stopPropagation();
+  saveNameFromInput('oa-name');
   guardedAction(e.currentTarget, () => {
     document.getElementById('modal-over-achiever').classList.add('hidden');
     resetGame();
@@ -352,10 +359,11 @@ document.getElementById('btn-newgame-oa').addEventListener('click', (e) => {
 
 document.getElementById('btn-confirm-end').addEventListener('click', (e) => {
   e.stopPropagation();
+  saveNameFromInput('es-name');
   endSessionModal.classList.add('hidden');
   isPaused = false; // Must unpause so the tween game-loop can tick!
   requestRedraw();
-  
+
   // End session logic: trigger explosion sequence
   handleGameOver(getAnimationContext(), true);
 });
@@ -378,27 +386,49 @@ function showHighScores() {
     return;
   }
 
+  // Column headers
+  const header = document.createElement('li');
+  header.className = 'hs-header';
+  header.innerHTML = '<span></span><span>Name</span><span>Score</span><span>Combo</span><span>Date</span>';
+  list.appendChild(header);
+
+  const topScore = scores[0].score;
+
   scores.forEach((s, i) => {
     const date = new Date(s.date).toLocaleDateString();
-    const trophy = s.achievement ? ' 🏆' : '';
-    
+
     const li = document.createElement('li');
-    
+    if (s.achievement) li.classList.add('hs-achievement');
+    if (i === 0) li.classList.add('hs-top');
+
     const rankSpan = document.createElement('span');
     rankSpan.className = 'rank';
-    rankSpan.textContent = `#${i + 1}`;
+    rankSpan.textContent = i === 0 ? '👑' : `#${i + 1}`;
     li.appendChild(rankSpan);
-    
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'name';
+    nameSpan.textContent = s.name || '';
+    li.appendChild(nameSpan);
+
     const scoreSpan = document.createElement('span');
     scoreSpan.className = 'score';
-    scoreSpan.textContent = `${s.score.toLocaleString()}${trophy}`;
+    scoreSpan.textContent = s.score.toLocaleString();
+    if (s.achievement) {
+      scoreSpan.textContent += ' 🏆';
+    }
     li.appendChild(scoreSpan);
-    
+
+    const comboSpan = document.createElement('span');
+    comboSpan.className = 'combo';
+    comboSpan.textContent = s.maxCombo ? `x${s.maxCombo}` : '-';
+    li.appendChild(comboSpan);
+
     const dateSpan = document.createElement('span');
     dateSpan.className = 'date';
     dateSpan.textContent = date;
     li.appendChild(dateSpan);
-    
+
     list.appendChild(li);
   });
 }
@@ -786,6 +816,7 @@ async function animateRotation(clockwise) {
 
 function handleGameWin() {
   state = 'gameover';
+  prepopulateNameInputs();
   document.getElementById('modal-gamewin').classList.remove('hidden');
 }
 
@@ -970,6 +1001,7 @@ function saveGame() {
     displayScore: getDisplayScore(),
     chainLevel: getChainLevel(),
     comboCount: getComboCount(),
+    maxCombo: getMaxCombo(),
   });
 }
 
@@ -995,6 +1027,25 @@ async function startCascade() {
 }
 
 // ─── Helpers ────────────────────────────────────────────────────
+
+/** Prepopulate all name inputs with the sticky player name. */
+function prepopulateNameInputs() {
+  const name = getPlayerName();
+  for (const id of ['go-name', 'gw-name', 'oa-name', 'es-name']) {
+    const el = document.getElementById(id);
+    if (el) el.value = name;
+  }
+}
+
+/** Read the name from an input, persist it, and attach it to the latest high score. */
+function saveNameFromInput(inputId) {
+  const el = document.getElementById(inputId);
+  const name = el ? el.value.trim().slice(0, 20) : '';
+  if (name) {
+    setPlayerName(name);
+    updateLatestHighScoreName(getCombinedModeId(), name);
+  }
+}
 
 function clustersMatch(a, b) {
   if (!a || !b || a.length !== b.length) return false;

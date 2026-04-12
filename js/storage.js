@@ -158,11 +158,15 @@ export function isSectorUnlocked(sectorId, sectors) {
  * @param {string} modeId
  * @param {number} score
  * @param {string} [achievement] - optional achievement id (e.g. 'over-achiever')
+ * @param {number} [maxCombo] - peak combo count for this session
+ * @param {string} [name] - player name for leaderboard
  */
-export function addHighScore(modeId, score, achievement) {
+export function addHighScore(modeId, score, achievement, maxCombo, name) {
   const scores = getHighScores(modeId);
   const entry = { score, date: Date.now() };
   if (achievement) entry.achievement = achievement;
+  if (maxCombo != null) entry.maxCombo = maxCombo;
+  if (name) entry.name = name;
   scores.push(entry);
   scores.sort((a, b) => b.score - a.score);
   const top10 = scores.slice(0, 10);
@@ -171,6 +175,37 @@ export function addHighScore(modeId, score, achievement) {
   } catch (e) {
     console.error('Failed to save high scores:', e);
   }
+}
+
+/**
+ * Update the name on the most recent high score entry for this mode.
+ * @param {string} modeId
+ * @param {string} name
+ */
+export function updateLatestHighScoreName(modeId, name) {
+  const scores = getHighScores(modeId);
+  if (scores.length === 0) return;
+  // Find the entry with the most recent date
+  let latest = scores[0];
+  for (const s of scores) {
+    if (s.date > latest.date) latest = s;
+  }
+  latest.name = name;
+  try {
+    localStorage.setItem(`hecknsic_highscores_${modeId}`, JSON.stringify(scores));
+  } catch (e) {
+    console.error('Failed to update high score name:', e);
+  }
+}
+
+/**
+ * Get / set the sticky player name.
+ */
+export function getPlayerName() {
+  return localStorage.getItem('hecknsic_player_name') || '';
+}
+export function setPlayerName(name) {
+  localStorage.setItem('hecknsic_player_name', name);
 }
 
 /**
