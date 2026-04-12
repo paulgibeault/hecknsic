@@ -171,6 +171,37 @@
   font-size: 0.85em;
   text-align: right;
 }
+
+/* Header row */
+.high-scores-list .hs-header {
+  border-bottom: 1px solid rgba(255,255,255,0.2);
+  padding: 6px 10px;
+}
+.high-scores-list .hs-header span {
+  font-size: 0.7em;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #606080;
+  font-weight: 600;
+}
+.high-scores-list .hs-header span:nth-child(2) { text-align: right; }
+.high-scores-list .hs-header span:nth-child(3) { text-align: center; }
+.high-scores-list .hs-header span:nth-child(4) { text-align: right; }
+
+/* Top score highlight */
+.high-scores-list .hs-top {
+  background: rgba(255, 215, 0, 0.06);
+}
+.high-scores-list .hs-top .score {
+  color: #FFD740;
+  text-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+}
+
+/* Achievement row */
+.high-scores-list .hs-achievement {
+  background: rgba(255, 215, 0, 0.04);
+}
+
 /* Game Over Modal */
 .gameover-message {
   font-size: 1.2rem;

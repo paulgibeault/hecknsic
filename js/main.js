@@ -378,25 +378,37 @@ function showHighScores() {
     return;
   }
 
+  // Column headers
+  const header = document.createElement('li');
+  header.className = 'hs-header';
+  header.innerHTML = '<span></span><span>Score</span><span>Combo</span><span>Date</span>';
+  list.appendChild(header);
+
+  const topScore = scores[0].score;
+
   scores.forEach((s, i) => {
     const date = new Date(s.date).toLocaleDateString();
-    const trophy = s.achievement ? ' 🏆' : '';
 
     const li = document.createElement('li');
+    if (s.achievement) li.classList.add('hs-achievement');
+    if (i === 0) li.classList.add('hs-top');
 
     const rankSpan = document.createElement('span');
     rankSpan.className = 'rank';
-    rankSpan.textContent = `#${i + 1}`;
+    rankSpan.textContent = i === 0 ? '👑' : `#${i + 1}`;
     li.appendChild(rankSpan);
 
     const scoreSpan = document.createElement('span');
     scoreSpan.className = 'score';
-    scoreSpan.textContent = `${s.score.toLocaleString()}${trophy}`;
+    scoreSpan.textContent = s.score.toLocaleString();
+    if (s.achievement) {
+      scoreSpan.textContent += ' 🏆';
+    }
     li.appendChild(scoreSpan);
 
     const comboSpan = document.createElement('span');
     comboSpan.className = 'combo';
-    comboSpan.textContent = s.maxCombo ? `x${s.maxCombo}` : '';
+    comboSpan.textContent = s.maxCombo ? `x${s.maxCombo}` : '-';
     li.appendChild(comboSpan);
 
     const dateSpan = document.createElement('span');
