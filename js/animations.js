@@ -12,7 +12,7 @@ import {
 } from './renderer.js';
 import { getActiveGameMode } from './modes.js';
 import { hexToPixel, getNeighbors } from './hex-math.js';
-import { tween, easeOutCubic, easeOutBounce } from './tween.js';
+import { tween, easeOutCubic, easeOutBounce, linear } from './tween.js';
 import { awardMatch, advanceChain, getDisplayScore, getChainLevel, getScore, getComboCount, getMaxCombo } from './score.js';
 import {
   detectStarflowersAtCleared, detectBlackPearls, detectMultiplierClusters
