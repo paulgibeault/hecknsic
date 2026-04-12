@@ -158,6 +158,14 @@
 .high-scores-list .score {
   font-weight: bold;
   color: #fff;
+  flex: 1;
+  text-align: right;
+}
+.high-scores-list .combo {
+  color: #FFD740;
+  font-size: 0.85em;
+  width: 36px;
+  text-align: right;
 }
 .high-scores-list .date {
   color: #888;

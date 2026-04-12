@@ -381,24 +381,29 @@ function showHighScores() {
   scores.forEach((s, i) => {
     const date = new Date(s.date).toLocaleDateString();
     const trophy = s.achievement ? ' 🏆' : '';
-    
+
     const li = document.createElement('li');
-    
+
     const rankSpan = document.createElement('span');
     rankSpan.className = 'rank';
     rankSpan.textContent = `#${i + 1}`;
     li.appendChild(rankSpan);
-    
+
     const scoreSpan = document.createElement('span');
     scoreSpan.className = 'score';
     scoreSpan.textContent = `${s.score.toLocaleString()}${trophy}`;
     li.appendChild(scoreSpan);
-    
+
+    const comboSpan = document.createElement('span');
+    comboSpan.className = 'combo';
+    comboSpan.textContent = s.maxCombo ? `x${s.maxCombo}` : '';
+    li.appendChild(comboSpan);
+
     const dateSpan = document.createElement('span');
     dateSpan.className = 'date';
     dateSpan.textContent = date;
     li.appendChild(dateSpan);
-    
+
     list.appendChild(li);
   });
 }

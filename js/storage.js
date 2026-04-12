@@ -158,11 +158,13 @@ export function isSectorUnlocked(sectorId, sectors) {
  * @param {string} modeId
  * @param {number} score
  * @param {string} [achievement] - optional achievement id (e.g. 'over-achiever')
+ * @param {number} [maxCombo] - peak combo count for this session
  */
-export function addHighScore(modeId, score, achievement) {
+export function addHighScore(modeId, score, achievement, maxCombo) {
   const scores = getHighScores(modeId);
   const entry = { score, date: Date.now() };
   if (achievement) entry.achievement = achievement;
+  if (maxCombo != null) entry.maxCombo = maxCombo;
   scores.push(entry);
   scores.sort((a, b) => b.score - a.score);
   const top10 = scores.slice(0, 10);
