@@ -8,23 +8,24 @@
 
 import {
   GRID_COLS, GRID_ROWS, HEX_SIZE, PIECE_COLORS, STARFLOWER_COLOR, BLACK_PEARL_COLOR, GRAND_POOBAH_COLOR,
-  FRAME_COLOR, BOARD_BG_COLOR, TEXT_COLOR,
+  FRAME_COLOR, BOARD_BG_COLOR,
   HIGHLIGHT_COLOR, CLUSTER_HIGHLIGHT,
 } from './constants.js';
 import { hexToPixel, hexCorners } from './hex-math.js';
-import { getActiveGameMode, getActiveMatchMode } from './modes.js';
-import { getDisplayScore, getComboCount, getChainLevel } from './score.js';
-import { getHighScores } from './storage.js';
+import { getComboCount, getChainLevel } from './score.js';
 // ─── Module state ───────────────────────────────────────────────
 let ctx;
 let canvasW, canvasH;   // physical CSS pixel dimensions
 let originX, originY;   // hex grid origin in logical (design) space
 let boardScale = 1;     // scale applied to fit the board on small screens
+let activeGridCols = GRID_COLS;  // current grid dimensions (may differ for puzzles)
+let activeGridRows = GRID_ROWS;
 
 let isDirty = true;
 export function requestRedraw() { isDirty = true; }
 export function clearDirty() { isDirty = false; }
 export function getIsDirty() { return isDirty; }
+
 
 export function hasActiveRendererAnimations() {
   return creationParticles.length > 0 ||
@@ -61,18 +62,24 @@ let comboTierShowTime = 0;  // timestamp when current tier first appeared (for p
 // ─── Score popup state ───────────────────────────────────────────
 let scorePopups = [];  // { x, y, vy, text, life, maxLife, fontSize, color }
 
+// ─── Cached board background ─────────────────────────────────────
+// Offscreen canvas holding the board background (shadow + fill + stroke).
+// Redrawn only when grid size or canvas dimensions change, avoiding the
+// expensive per-frame shadowBlur computation that kills iOS Safari perf.
+let bgCache = null;  // { canvas, x, y, w, h, cols, rows, canvasW, canvasH, boardScale }
+
 // Label tier thresholds (by combo count)
 const COMBO_THRESHOLDS = [2,  5,   7,  10,  12,  15];
 const COMBO_LABELS     = ['COMBO', 'NICE!', 'SWEET!', 'AMAZING!', 'SICK!', 'HECKN SIC!'];
 const COMBO_COLORS     = ['#FFD740', '#FF9800', '#FF5722', '#E040FB', '#7C4DFF', '#4FC3F7'];
 const COMBO_FADE_MS    = 1200;
 
-const logoImg = new Image();
-logoImg.src = 'img/logo_header.png';
 
 export function initRenderer(canvas) {
   ctx = canvas.getContext('2d');
-  resize(canvas);
+  // Defer initial resize so the HUD has time to lay out — 
+  // getBoundingClientRect() on the HUD returns 0 if called synchronously on load.
+  requestAnimationFrame(() => resize(canvas));
 }
 
 export function resize(canvas) {
@@ -89,23 +96,37 @@ export function resize(canvas) {
 }
 
 function recalcOrigin() {
-  const gridPixelW = (GRID_COLS - 1) * HEX_SIZE * 1.5 + HEX_SIZE * 2;
-  const gridPixelH = GRID_ROWS * Math.sqrt(3) * HEX_SIZE + Math.sqrt(3) / 2 * HEX_SIZE;
+  const gridPixelW = (activeGridCols - 1) * HEX_SIZE * 1.5 + HEX_SIZE * 2;
+  const gridPixelH = activeGridRows * Math.sqrt(3) * HEX_SIZE + Math.sqrt(3) / 2 * HEX_SIZE;
 
   // Space reserved for HUD (top) and rotation controls (bottom).
-  const HUD_H  = 60;
+  // Measure the actual rendered HUD height so the board sits flush beneath it.
+  // Add 8px buffer so the top row of hexes is never clipped by the header.
+  const hudEl = document.getElementById('game-hud');
+  const hudRect = hudEl ? hudEl.getBoundingClientRect() : null;
+  const HUD_H = (hudRect && hudRect.height > 0 ? hudRect.height : 60) + 8;
   
   // If we have a fine pointer (mouse/trackpad) and a wide screen, controls are hidden via CSS.
   // We can free up that vertical space for the board.
   const isDesktop = window.matchMedia('(pointer: fine) and (min-width: 1024px)').matches;
   const CTRL_H = isDesktop ? 0 : 100; // 80px buttons + 20px bottom margin
 
-  // Calculate the scale needed to fit the board. We allow upscaling (up to 1.8x)
-  // on large screens to fill the comfortable margins.
-  const fitScaleX = (canvasW - 40) / gridPixelW; // 20px padding each side
-  const fitScaleY = (canvasH - HUD_H - CTRL_H - 20) / gridPixelH; // 20px padding bottom
-  
-  boardScale = Math.min(1.8, fitScaleX, fitScaleY);
+  // Calculate the scale needed to fit the board.
+  // On desktop wide screens, let the board fill the vertical space.
+  const padX = isDesktop ? 20 : 40;   // tighter horizontal padding on desktop
+  const padY = isDesktop ? 10 : 20;   // tighter vertical padding on desktop
+  const fitScaleX = (canvasW - padX) / gridPixelW;
+  const fitScaleY = (canvasH - HUD_H - CTRL_H - padY) / gridPixelH;
+
+  const maxScale = isDesktop ? 3.0 : 1.8;
+  boardScale = Math.min(maxScale, fitScaleX, fitScaleY);
+
+  // Expose scale to CSS so HTML overlays (menu, buttons, HUD) can grow to match.
+  if (isDesktop) {
+    document.documentElement.style.setProperty(
+      '--ui-scale', String(Math.max(1, boardScale))
+    );
+  }
 
   // Logical canvas dimensions: the coordinate space all drawing uses.
   const logicalW = canvasW / boardScale;
@@ -127,14 +148,20 @@ export function getOrigin() {
 /** Scale factor for converting physical CSS pixel coords → logical coords. */
 export function getBoardScale() { return boardScale; }
 
-/**
- * Returns the bounding box of the logo in logical (design) space.
- * Returns null if the logo image is not yet loaded.
- */
-export function getLogoBounds() {
-  if (!logoImg.complete || logoImg.naturalWidth === 0) return null;
-  const s = 0.085;
-  return { x: 16, y: 5, w: logoImg.width * s, h: logoImg.height * s };
+/** Set the active grid dimensions (called when loading puzzles or new games). */
+export function setActiveGridSize(cols, rows) {
+  activeGridCols = cols;
+  activeGridRows = rows;
+  recalcOrigin();
+  // Update the canvas transform to match the new boardScale so the clear
+  // rect covers the full canvas and no stale pixels from a larger grid remain.
+  const dpr = window.devicePixelRatio || 1;
+  ctx.setTransform(dpr * boardScale, 0, 0, dpr * boardScale, 0, 0);
+  requestRedraw();
+}
+
+export function getActiveGridSize() {
+  return { cols: activeGridCols, rows: activeGridRows };
 }
 
 // ─── Override API ───────────────────────────────────────────────
@@ -271,10 +298,11 @@ export function drawFrame(grid, hoverCluster, selectedCluster) {
   drawBoardBackground();
 
   // Grid hexes
-  for (let c = 0; c < GRID_COLS; c++) {
-    for (let r = 0; r < GRID_ROWS; r++) {
-      const cell = grid[c][r];
-      if (cell === null) continue;
+  for (let c = 0; c < activeGridCols; c++) {
+    if (!grid[c]) continue;
+    for (let r = 0; r < activeGridRows; r++) {
+      const cell = grid[c]?.[r];
+      if (!cell) continue;
 
       const override = cellOverrides[`${c},${r}`];
       if (override && override.hidden) continue;
@@ -936,30 +964,54 @@ function drawHexOutline(cx, cy, size, strokeColor, lineWidth) {
 
 function drawBoardBackground() {
   const padding = HEX_SIZE * 1.2;
-  const gridPixelW = (GRID_COLS - 1) * HEX_SIZE * 1.5 + HEX_SIZE * 2;
-  const gridPixelH = GRID_ROWS * Math.sqrt(3) * HEX_SIZE + Math.sqrt(3) / 2 * HEX_SIZE;
+  const gridPixelW = (activeGridCols - 1) * HEX_SIZE * 1.5 + HEX_SIZE * 2;
+  const gridPixelH = activeGridRows * Math.sqrt(3) * HEX_SIZE + Math.sqrt(3) / 2 * HEX_SIZE;
   const x = originX - HEX_SIZE - padding / 2;
   const y = originY - Math.sqrt(3) / 2 * HEX_SIZE - padding / 2;
   const w = gridPixelW + padding;
   const h = gridPixelH + padding;
 
-  ctx.fillStyle = BOARD_BG_COLOR;
-  
-  // Ambient neon/shadow drop off the board
-  ctx.save();
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
-  ctx.shadowBlur = 40;
-  ctx.shadowOffsetX = 0;
-  ctx.shadowOffsetY = 10;
-  roundRect(ctx, x, y, w, h, 12);
-  ctx.fill();
-  ctx.restore();
+  // Cache the board background (expensive shadowBlur) to an offscreen canvas.
+  // Only regenerate when grid dimensions, canvas size, or scale change.
+  const needsRegen = !bgCache
+    || bgCache.cols !== activeGridCols || bgCache.rows !== activeGridRows
+    || bgCache.canvasW !== canvasW || bgCache.canvasH !== canvasH
+    || bgCache.boardScale !== boardScale;
 
-  // Highlight stroke
-  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-  ctx.lineWidth = 1.5;
-  roundRect(ctx, x, y, w, h, 12);
-  ctx.stroke();
+  if (needsRegen) {
+    // Margin around the rect to accommodate the shadow blur + offset
+    const margin = 60;
+    const offW = Math.ceil(w + margin * 2);
+    const offH = Math.ceil(h + margin * 2);
+
+    const off = document.createElement('canvas');
+    off.width = offW;
+    off.height = offH;
+    const offCtx = off.getContext('2d');
+
+    // Draw the shadowed fill at an offset so the shadow doesn't clip
+    offCtx.fillStyle = BOARD_BG_COLOR;
+    offCtx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+    offCtx.shadowBlur = 40;
+    offCtx.shadowOffsetX = 0;
+    offCtx.shadowOffsetY = 10;
+    roundRect(offCtx, margin, margin, w, h, 12);
+    offCtx.fill();
+
+    // Highlight stroke (no shadow)
+    offCtx.shadowColor = 'transparent';
+    offCtx.shadowBlur = 0;
+    offCtx.strokeStyle = 'rgba(255,255,255,0.08)';
+    offCtx.lineWidth = 1.5;
+    roundRect(offCtx, margin, margin, w, h, 12);
+    offCtx.stroke();
+
+    bgCache = { canvas: off, x, y, w, h, margin, offW, offH, cols: activeGridCols, rows: activeGridRows, canvasW, canvasH, boardScale };
+  }
+
+  // Blit the cached background — no per-frame shadow computation
+  ctx.drawImage(bgCache.canvas, 0, 0, bgCache.offW, bgCache.offH,
+    x - bgCache.margin, y - bgCache.margin, bgCache.offW, bgCache.offH);
 }
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -1083,7 +1135,7 @@ function drawComboOverlay() {
   const glow        = tierIdx * 9;
 
   // Size, position, and opacity all scale up with tier so low tiers stay unobtrusive
-  const gridPixelH  = GRID_ROWS * Math.sqrt(3) * HEX_SIZE + Math.sqrt(3) / 2 * HEX_SIZE;
+  const gridPixelH  = activeGridRows * Math.sqrt(3) * HEX_SIZE + Math.sqrt(3) / 2 * HEX_SIZE;
   const cx  = canvasW / boardScale / 2;
   // Tier 0 sits near the top of the board; higher tiers drift toward the center
   const cy  = originY + gridPixelH * (0.10 + tierIdx * 0.028);
@@ -1124,40 +1176,8 @@ function drawComboOverlay() {
 
 // ─── HUD ────────────────────────────────────────────────────────
 
-function drawHUD() {
-  let textStartY = 28;
-
-  // Logo
-  if (logoImg.complete && logoImg.naturalWidth > 0) {
-    const scale = 0.085;
-    const w = logoImg.width * scale;
-    const h = logoImg.height * scale;
-    ctx.drawImage(logoImg, 16, 5, w, h);
-    textStartY = 5 + h + 24; // Position text below the logo
-  } else {
-    // Fallback if not loaded
-    ctx.fillStyle = TEXT_COLOR;
-    ctx.font = 'bold 22px "Segoe UI", system-ui, sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText('Hecknsic', 16, 28);
-    textStartY = 28 + 24;
-  }
-
-  // Draw Score
-  ctx.textAlign = 'left';
-  ctx.fillStyle = TEXT_COLOR;
-  ctx.font = 'bold 20px "Segoe UI", system-ui, sans-serif';
-  ctx.fillText(`SCORE  ${getDisplayScore()}`, 16, textStartY);
-
-  // Draw Mode Indicator
-  ctx.fillStyle = '#50B0FF';
-  ctx.font = 'bold 12px "Segoe UI", system-ui, sans-serif';
-  ctx.letterSpacing = '1px';
-  const gameMode = getActiveGameMode()?.label || 'ARCADE';
-  const matchMode = getActiveMatchMode()?.label || 'LINE';
-  ctx.fillText(`${gameMode.toUpperCase()} - ${matchMode.toUpperCase()}`, 16, textStartY + 18);
-  ctx.letterSpacing = '0px'; // reset
-}
+// HUD is now rendered entirely in HTML (game-hud element).
+function drawHUD() {}
 
 // ─── Helpers ────────────────────────────────────────────────────
 

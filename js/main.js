@@ -26,23 +26,30 @@ import {
   spawnCreationParticles, spawnScorePopup,
   spawnColorNukeParticles, spawnExplosionParticles,
   spawnRingShockwave, flashScreenOverlay,
-  getLogoBounds, requestRedraw, clearDirty, getIsDirty, hasActiveRendererAnimations
+  requestRedraw, clearDirty, getIsDirty, hasActiveRendererAnimations,
+  setActiveGridSize,
 } from './renderer.js';
 import {
-  loadActiveMode, getActiveGameMode, getActiveMatchMode, 
-  getActiveGameModeId, getActiveMatchModeId, getCombinedModeId,
-  setActiveGameMode, setActiveMatchMode, getAllGameModes, getAllMatchModes
+  loadActiveMode, getActiveGameMode, getActiveMatchMode,
+  getActiveGameModeId, getCombinedModeId,
+  setActiveGameMode, getAllGameModes
 } from './modes.js';
 import { hexToPixel, getNeighbors, pixelToHex, findClusterAtPixel } from './hex-math.js';
 import {
-  initInput, getHoverCluster, consumeAction, getLastClickPos, getMousePos, triggerAction,
+  initInput, getHoverCluster, consumeAction, getLastClickPos, triggerAction,
   setKeyBindings, clearPendingAction, setClusterCenterPx,
-} from './input.js?v=3';
+} from './input.js';
+
+import {
+  animateClusterRotation, animateRingRotation, animateYRotation,
+  animateBlackPearlCreation, animateGrandPoobahCreation, animateStarflowerCreation,
+  handleOverAchiever, handleGameOver, runCascade, computeFallDistances, delay
+} from './animations.js';
 import { tween, updateTweens, easeOutCubic, easeOutBounce, hasActiveTweens, linear } from './tween.js';
 import {
   resetScore, awardMatch, advanceChain, resetChain,
   updateDisplayScore, restoreScore,
-  getScore, getDisplayScore, getChainLevel, getComboCount, isScoreAnimating
+  getScore, getDisplayScore, getChainLevel, getComboCount, getMaxCombo, isScoreAnimating
 } from './score.js';
 import {
   detectStarflowers, detectStarflowersAtCleared,
@@ -51,11 +58,42 @@ import {
 } from './specials.js';
 import {
   saveGameState, loadGameState, clearGameState,
-  addHighScore, getHighScores, loadSettings
+  addHighScore, getHighScores, updateLatestHighScoreName,
+  getPlayerName, setPlayerName,
+  loadSettings, saveSettings
 } from './storage.js';
+import {
+  initPuzzleModeUI, showPuzzleSelector, registerPuzzleCallbacks,
+  clearActivePuzzle, getActivePuzzle, getPuzzleMovesLeft,
+  onPuzzleMove, onStarflowerCreated,
+} from './puzzle-mode.js';
 
+
+// ─── Animation Context ───
+export const getAnimationContext = () => ({
+  get grid() { return grid; },
+  set grid(g) { grid = g; },
+  get activeCols() { return activeCols; },
+  get activeRows() { return activeRows; },
+  get state() { return state; },
+  setState(s) { state = s; },
+  get boardGeneration() { return boardGeneration; },
+  get selectedCluster() { return selectedCluster; },
+  get flowerCenter() { return flowerCenter; },
+  get pearlCenter() { return pearlCenter; },
+  get moveCount() { return moveCount; },
+  get bombQueued() { return bombQueued; },
+  setBombQueued(q) { bombQueued = q; },
+  resetGame: () => resetGame(),
+  handleGameWin: () => handleGameWin(),
+  getCombinedModeId,
+  clearGameState,
+  addHighScore,
+});
 // ─── Game state ─────────────────────────────────────────────────
 let grid;
+let activeCols = GRID_COLS;  // may shrink for puzzle grids
+let activeRows = GRID_ROWS;
 let state = 'idle';  // 'idle' | 'selected' | 'rotating' | 'cascading' | 'gameover'
 let isPaused = false;
 let selectedCluster = null;
@@ -64,19 +102,51 @@ let pearlCenter = null;      // {col,row} if a black pearl Y-shape is selected
 let lastTime = 0;
 let moveCount = 0;           // total player moves (for bomb spawn timing)
 let bombQueued = false;
+let boardGeneration = 0;  // incremented on grid replacement; stale async chains bail out
 
 // ─── Bootstrap ──────────────────────────────────────────────────
+
+/** True while the board is mid-animation (rotating, cascading). UI should not restart. */
+export function isProcessing() {
+  return state === 'rotating' || state === 'cascading';
+}
 
 // DEBUG: Expose internals
 window.debug = {
   getGrid: () => grid,
   getState: () => state,
-  runPostRotation: () => postRotationCheck(),
+  runPostRotation: () => postRotationCheck(boardGeneration),
 };
 
 const canvas = document.getElementById('game');
 initRenderer(canvas);
 initInput(canvas);
+
+// ─── Puzzle mode setup ───────────────────────────────────────────
+initPuzzleModeUI(() => grid, isProcessing);
+
+registerPuzzleCallbacks(
+  // onLoad: replace the board with the puzzle's fixed grid
+  (puzzleGrid, cols, rows, puzzle) => {
+    boardGeneration++;
+    setActiveGameMode('puzzle');
+    clearAllOverrides();
+    bombQueued = false;
+    selectedCluster = flowerCenter = pearlCenter = null;
+    moveCount = 0;
+    resetScore();
+    grid = puzzleGrid;
+    activeCols = cols;
+    activeRows = rows;
+    setActiveGridSize(cols, rows);
+    state = 'idle';
+    requestRedraw();
+  },
+  // onEnd: freeze input when puzzle ends
+  (reason) => {
+    state = 'gameover';
+  }
+);
 
 // Apply settings
 const settings = loadSettings();
@@ -140,10 +210,24 @@ document.getElementById('btn-close-scores').addEventListener('click', (e) => {
   lastTime = performance.now();
 });
 
+// Shared guard: shake a button and bail if board is mid-animation.
+// Prevents restart clicks during cascade/rotation feeling like they're ignored.
+function guardedAction(btn, action) {
+  if (isProcessing()) {
+    btn.classList.remove('shake-animation');
+    void btn.offsetWidth; // force reflow to restart animation
+    btn.classList.add('shake-animation');
+    setTimeout(() => btn.classList.remove('shake-animation'), 400);
+    return;
+  }
+  action();
+}
+
 // Game Over Modal bindings
 document.getElementById('btn-newgame').addEventListener('click', (e) => {
   e.stopPropagation();
-  resetGame();
+  saveNameFromInput('go-name');
+  guardedAction(e.currentTarget, resetGame);
 });
 
 // Dropdown Mode Selector bindings
@@ -156,9 +240,7 @@ function toggleModeDropdown() {
     document.querySelectorAll('[data-mode]').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.mode === getActiveGameModeId());
     });
-    document.querySelectorAll('[data-match]').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.match === getActiveMatchModeId());
-    });
+    // match mode selector removed (classic-only)
   } else {
     logoDropdown.classList.add('hidden');
   }
@@ -172,17 +254,16 @@ window.addEventListener('click', (e) => {
   }
 });
 
+// Game HUD logo opens the mode dropdown
+document.getElementById('game-hud-logo')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  toggleModeDropdown();
+});
+
 document.querySelectorAll('[data-mode]').forEach(btn => {
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
     switchGameMode(btn.dataset.mode);
-  });
-});
-
-document.querySelectorAll('[data-match]').forEach(btn => {
-  btn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    switchMatchMode(btn.dataset.match);
   });
 });
 
@@ -238,6 +319,7 @@ document.getElementById('dropdown-btn-end-session').addEventListener('click', (e
   void content.offsetWidth; // trigger reflow
   content.classList.add('shake-animation');
   
+  prepopulateNameInputs();
   endSessionModal.classList.remove('hidden');
 });
 
@@ -252,6 +334,7 @@ document.getElementById('btn-cancel-end').addEventListener('click', (e) => {
 // Game Win Modal bindings
 document.getElementById('btn-continue-gamewin').addEventListener('click', (e) => {
   e.stopPropagation();
+  saveNameFromInput('gw-name');
   document.getElementById('modal-gamewin').classList.add('hidden');
   state = 'idle';
   isPaused = false;
@@ -260,24 +343,29 @@ document.getElementById('btn-continue-gamewin').addEventListener('click', (e) =>
 
 document.getElementById('btn-newgame-gamewin').addEventListener('click', (e) => {
   e.stopPropagation();
-  resetGame();
+  saveNameFromInput('gw-name');
+  guardedAction(e.currentTarget, resetGame);
 });
 
 // Over-Achiever Modal binding
 document.getElementById('btn-newgame-oa').addEventListener('click', (e) => {
   e.stopPropagation();
-  document.getElementById('modal-over-achiever').classList.add('hidden');
-  resetGame();
+  saveNameFromInput('oa-name');
+  guardedAction(e.currentTarget, () => {
+    document.getElementById('modal-over-achiever').classList.add('hidden');
+    resetGame();
+  });
 });
 
 document.getElementById('btn-confirm-end').addEventListener('click', (e) => {
   e.stopPropagation();
+  saveNameFromInput('es-name');
   endSessionModal.classList.add('hidden');
   isPaused = false; // Must unpause so the tween game-loop can tick!
   requestRedraw();
-  
+
   // End session logic: trigger explosion sequence
-  handleGameOver(true);
+  handleGameOver(getAnimationContext(), true);
 });
 
 function showHighScores() {
@@ -286,25 +374,63 @@ function showHighScores() {
   const scores = getHighScores(combinedId);
   const modeLabelEl = document.getElementById('hs-mode-label');
   if (modeLabelEl) {
-    modeLabelEl.textContent = `${getActiveGameMode().label} - ${getActiveMatchMode().label}`;
+    modeLabelEl.textContent = `${getActiveGameMode().label}`; // match mode label removed
   }
   
+  list.innerHTML = '';
+
   if (scores.length === 0) {
-    list.innerHTML = '<li>No scores yet!</li>';
+    const li = document.createElement('li');
+    li.textContent = 'No scores yet!';
+    list.appendChild(li);
     return;
   }
 
-  list.innerHTML = scores.map((s, i) => {
+  // Column headers
+  const header = document.createElement('li');
+  header.className = 'hs-header';
+  header.innerHTML = '<span></span><span>Name</span><span>Score</span><span>Combo</span><span>Date</span>';
+  list.appendChild(header);
+
+  const topScore = scores[0].score;
+
+  scores.forEach((s, i) => {
     const date = new Date(s.date).toLocaleDateString();
-    const trophy = s.achievement ? ' 🏆' : '';
-    return `
-      <li>
-        <span class="rank">#${i + 1}</span>
-        <span class="score">${s.score.toLocaleString()}${trophy}</span>
-        <span class="date">${date}</span>
-      </li>
-    `;
-  }).join('');
+
+    const li = document.createElement('li');
+    if (s.achievement) li.classList.add('hs-achievement');
+    if (i === 0) li.classList.add('hs-top');
+
+    const rankSpan = document.createElement('span');
+    rankSpan.className = 'rank';
+    rankSpan.textContent = i === 0 ? '👑' : `#${i + 1}`;
+    li.appendChild(rankSpan);
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'name';
+    nameSpan.textContent = s.name || '';
+    li.appendChild(nameSpan);
+
+    const scoreSpan = document.createElement('span');
+    scoreSpan.className = 'score';
+    scoreSpan.textContent = s.score.toLocaleString();
+    if (s.achievement) {
+      scoreSpan.textContent += ' 🏆';
+    }
+    li.appendChild(scoreSpan);
+
+    const comboSpan = document.createElement('span');
+    comboSpan.className = 'combo';
+    comboSpan.textContent = s.maxCombo ? `x${s.maxCombo}` : '-';
+    li.appendChild(comboSpan);
+
+    const dateSpan = document.createElement('span');
+    dateSpan.className = 'date';
+    dateSpan.textContent = date;
+    li.appendChild(dateSpan);
+
+    list.appendChild(li);
+  });
 }
 
 function updateControlsVisibility() {
@@ -315,10 +441,63 @@ function updateControlsVisibility() {
   }
 }
 
-window.addEventListener('resize', () => resize(canvas));
+// ─── Unified HTML HUD ──────────────────────────────────────────
+
+const MODE_LABELS = { arcade: '💣 Arcade', chill: '✨ Chill', puzzle: '🧩 Puzzle' };
+
+/** Sync the HTML game-hud to the current mode and score. */
+function updateGameHUD() {
+  const mode = getActiveGameMode();
+  const hud = document.getElementById('game-hud');
+  if (!hud) return;
+
+  // Skip score updates when puzzle mode owns the right-side group
+  if (mode.isPuzzle) return;
+
+  hud.dataset.mode = mode.id;
+  const modeEl    = document.getElementById('game-hud-mode');
+  const scoreEl   = document.getElementById('hud-score-value');
+
+  if (modeEl)  modeEl.textContent  = MODE_LABELS[mode.id] || mode.label;
+  if (scoreEl) scoreEl.textContent = getDisplayScore().toLocaleString();
+}
+
+/** Called when switching modes to reconfigure the HUD layout. */
+function syncHUDForMode(modeId) {
+  const hud = document.getElementById('game-hud');
+  if (hud) hud.dataset.mode = modeId;
+
+  const modeEl      = document.getElementById('game-hud-mode');
+  const subtitleEl   = document.getElementById('game-hud-subtitle');
+  const scoreGroup  = document.getElementById('hud-score-group');
+  const puzzleGroup = document.getElementById('hud-puzzle-group');
+
+  if (modeEl) modeEl.textContent = MODE_LABELS[modeId] || modeId;
+  if (subtitleEl) subtitleEl.textContent = '';
+
+  if (modeId === 'puzzle') {
+    if (scoreGroup)  scoreGroup.style.display = 'none';
+    if (puzzleGroup) puzzleGroup.style.display = '';
+  } else {
+    if (scoreGroup)  scoreGroup.style.display = '';
+    if (puzzleGroup) puzzleGroup.style.display = 'none';
+  }
+}
+
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => resize(canvas), 150);
+});
 
 // Restore active mode then load per-mode saved state
 loadActiveMode();
+
+// Puzzle mode is transient (board state isn't persisted), so it can't be
+// meaningfully restored on reload.  Fall back to arcade.
+if (getActiveGameModeId() === 'puzzle') {
+  setActiveGameMode('arcade');
+}
 
 // ─── URL Configuration Parsing ──────────────────────────────────
 const urlParams = new URLSearchParams(window.location.search);
@@ -330,11 +509,7 @@ if (urlGameMode && getAllGameModes().some(m => m.id === urlGameMode)) {
   hasUrlConfig = true;
 }
 
-const urlMatchMode = urlParams.get('match');
-if (urlMatchMode && getAllMatchModes().some(m => m.id === urlMatchMode)) {
-  setActiveMatchMode(urlMatchMode);
-  hasUrlConfig = true;
-}
+// line match mode URL param removed (classic-only)
 
 // Strip URL params so refreshing doesn't lock the user into the linked config
 if (hasUrlConfig) {
@@ -348,6 +523,9 @@ if (activeGameMode.id === 'chill') {
   document.getElementById('dropdown-btn-end-session').classList.remove('hidden');
 }
 
+// Initialize the unified HTML HUD for the active mode
+syncHUDForMode(activeGameMode.id);
+
 const savedState = loadGameState(getCombinedModeId());
 if (savedState) {
   grid = savedState.grid;
@@ -358,6 +536,9 @@ if (savedState) {
 } else {
   resetScore();
   grid = createGrid();
+  activeCols = GRID_COLS;
+  activeRows = GRID_ROWS;
+  setActiveGridSize(GRID_COLS, GRID_ROWS);
   state = 'idle';
 }
 
@@ -386,10 +567,7 @@ function gameLoop(timestamp) {
     }
     // drawGameOver(); // Handled by DOM overlay now
     
-    // One-time game over handling (hacky: check if we just entered this state)
-    // tailored for this loop pattern: we return early, so just check a flag or run once
-    // We'll rely on the fact that we handle state transitions elsewhere
-    
+    updateGameHUD();
     requestAnimationFrame(gameLoop);
     return;
   }
@@ -434,15 +612,7 @@ function gameLoop(timestamp) {
   }
 
   updateControlsVisibility();
-
-  // Update cursor affordance based on logo hover
-  const mousePos = getMousePos();
-  const logo = getLogoBounds();
-  if (logo && mousePos.x >= logo.x && mousePos.x <= logo.x + logo.w && mousePos.y >= logo.y && mousePos.y <= logo.y + logo.h) {
-    canvas.style.cursor = 'pointer';
-  } else {
-    canvas.style.cursor = '';
-  }
+  updateGameHUD();
 
   requestAnimationFrame(gameLoop);
 }
@@ -462,36 +632,27 @@ function trySelect() {
     return;
   }
 
-  // Logo hit-test: clicking the logo toggles the mode dropdown
-  const logo = getLogoBounds();
-  if (logo &&
-      clickPos.x >= logo.x && clickPos.x <= logo.x + logo.w &&
-      clickPos.y >= logo.y && clickPos.y <= logo.y + logo.h) {
-    toggleModeDropdown();
-    return;
-  } else {
-    // Clicking outside closes it
-    if (!logoDropdown.classList.contains('hidden')) {
-      logoDropdown.classList.add('hidden');
-    }
+  // Close dropdown if clicking on canvas
+  if (!logoDropdown.classList.contains('hidden')) {
+    logoDropdown.classList.add('hidden');
   }
 
   const hex = pixelToHex(clickPos.x, clickPos.y, originX, originY);
 
   // Check if the clicked hex is a black pearl → Y-shape selection
-  if (hex.col >= 0 && hex.col < GRID_COLS &&
-      hex.row >= 0 && hex.row < GRID_ROWS &&
+  if (hex.col >= 0 && hex.col < activeCols &&
+      hex.row >= 0 && hex.row < activeRows &&
       grid[hex.col]?.[hex.row]?.special === 'blackpearl') {
     // Select a Y-shape: pearl center + 3 alternating neighbors
     const nbrs = getNeighbors(hex.col, hex.row);
     const inBoundsNbrs = nbrs.filter(n =>
-      n.col >= 0 && n.col < GRID_COLS && n.row >= 0 && n.row < GRID_ROWS
+      n.col >= 0 && n.col < activeCols && n.row >= 0 && n.row < activeRows
     );
     if (inBoundsNbrs.length >= 3) {
       // Pick alternating neighbors (every other one) for Y-shape
       // Use even-indexed neighbors: 0, 2, 4 for one Y, 1, 3, 5 for inverted
       const yHexes = [nbrs[0], nbrs[2], nbrs[4]].filter(n =>
-        n.col >= 0 && n.col < GRID_COLS && n.row >= 0 && n.row < GRID_ROWS
+        n.col >= 0 && n.col < activeCols && n.row >= 0 && n.row < activeRows
       );
       if (yHexes.length === 3) {
         pearlCenter = { col: hex.col, row: hex.row };
@@ -507,12 +668,12 @@ function trySelect() {
   }
 
   // Check if the clicked hex is a starflower → ring selection
-  if (hex.col >= 0 && hex.col < GRID_COLS &&
-      hex.row >= 0 && hex.row < GRID_ROWS &&
+  if (hex.col >= 0 && hex.col < activeCols &&
+      hex.row >= 0 && hex.row < activeRows &&
       grid[hex.col]?.[hex.row]?.special === 'starflower') {
     const nbrs = getNeighbors(hex.col, hex.row);
     const allInBounds = nbrs.every(n =>
-      n.col >= 0 && n.col < GRID_COLS && n.row >= 0 && n.row < GRID_ROWS
+      n.col >= 0 && n.col < activeCols && n.row >= 0 && n.row < activeRows
     );
     if (allInBounds) {
       flowerCenter = { col: hex.col, row: hex.row };
@@ -528,9 +689,9 @@ function trySelect() {
 
   // Normal 3-hex cluster selection
   const cluster = findClusterAtPixel(
-    clickPos.x, clickPos.y, 
-    originX, originY, 
-    GRID_COLS, GRID_ROWS
+    clickPos.x, clickPos.y,
+    originX, originY,
+    activeCols, activeRows
   );
   if (cluster) {
     flowerCenter = null;
@@ -554,9 +715,17 @@ function trySelect() {
 // ─── Mode selector ──────────────────────────────────────────────
 
 async function switchGameMode(newModeId) {
+  // Puzzle mode: open selector instead of switching directly
+  if (newModeId === 'puzzle') {
+    logoDropdown.classList.add('hidden');
+    showPuzzleSelector();
+    return;
+  }
+
   if (newModeId === getActiveGameModeId()) return;
-  saveGame();                     // persist current mode state
-  setActiveGameMode(newModeId);       // persist new selection
+  saveGame();
+  clearActivePuzzle();
+  setActiveGameMode(newModeId);
   if (newModeId === 'chill') {
     document.getElementById('dropdown-btn-end-session').classList.remove('hidden');
   } else {
@@ -568,22 +737,14 @@ async function switchGameMode(newModeId) {
     btn.classList.toggle('active', btn.dataset.mode === newModeId);
   });
 
+  syncHUDForMode(newModeId);
   resetBoardForNewMode();
 }
 
-async function switchMatchMode(newModeId) {
-  if (newModeId === getActiveMatchModeId()) return;
-  saveGame();
-  setActiveMatchMode(newModeId);
-
-  document.querySelectorAll('[data-match]').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.match === newModeId);
-  });
-
-  resetBoardForNewMode();
-}
+// switchMatchMode removed — line variant deprecated, see tag feature/line-match-mode
 
 function resetBoardForNewMode() {
+  boardGeneration++;
   clearAllOverrides();
   bombQueued = false;
   selectedCluster = flowerCenter = pearlCenter = null;
@@ -599,6 +760,9 @@ function resetBoardForNewMode() {
     grid = createGrid();
     moveCount = 0;
   }
+  activeCols = GRID_COLS;
+  activeRows = GRID_ROWS;
+  setActiveGridSize(GRID_COLS, GRID_ROWS);
   state = 'idle';
   document.getElementById('modal-gameover').classList.add('hidden');
   requestRedraw();
@@ -609,9 +773,11 @@ function resetBoardForNewMode() {
 async function animateRotation(clockwise) {
   if (state !== 'selected') return;
   state = 'rotating';
+  const gen = boardGeneration;
+  const ctx = getAnimationContext();
 
   const { originX, originY } = getOrigin();
-  
+
   // Determine max steps based on selection type
   // Starflower ring = 6 steps for full rotation
   // Cluster / Black Pearl (Y) = 3 steps for full rotation
@@ -621,20 +787,16 @@ async function animateRotation(clockwise) {
   for (let step = 0; step < maxSteps; step++) {
     // 1. Animate one step
     if (flowerCenter) {
-      await animateRingRotation(clockwise, originX, originY);
+      await animateRingRotation(ctx, clockwise, originX, originY);
     } else if (pearlCenter) {
-      await animateYRotation(clockwise, originX, originY);
+      await animateYRotation(ctx, clockwise, originX, originY);
     } else {
-      await animateClusterRotation(clockwise, originX, originY);
+      await animateClusterRotation(ctx, clockwise, originX, originY);
     }
+    if (boardGeneration !== gen) return; // board was replaced (e.g. restart)
 
     // 2. Check for matches or specials
-    const matchType = getActiveMatchMode().matchMode;
-    // We hack the old findMatchesForMode by changing to `findMatchesForMode(grid, GRID_COLS, GRID_ROWS, matchType)`?
-    // main.js imports `findMatchesForMode` which usually looks at `getActiveMode().matchMode`.
-    // Wait, findMatchesForMode currently looks up `getActiveMode().matchMode` on its own. Let's fix that.
-    // For now we'll just check `findMatchesForMode(grid, GRID_COLS, GRID_ROWS)`. We need to fix `board.js`.
-    const matches = findMatchesForMode(grid, GRID_COLS, GRID_ROWS);
+    const matches = findMatchesForMode(grid, activeCols, activeRows);
     const sfResults = detectStarflowers(grid);
     const bpResults = detectBlackPearls(grid);
     const gpResults = detectGrandPoobahs(grid);
@@ -642,498 +804,42 @@ async function animateRotation(clockwise) {
     // If we found anything significant, proceed to post-rotation logic (cascade/etc)
     // and STOP rotating.
     if (matches.size > 0 || sfResults.length > 0 || bpResults.length > 0 || gpResults.length > 0) {
-      await postRotationCheck();
-      return; 
+      await postRotationCheck(gen);
+      return;
     }
   }
 
   // If we loop through all steps without a match, we are back at the start.
   // Count as a move, tick bombs, etc.
-  await postRotationCheck();
-}
-
-/** Animate 3-hex cluster rotation (original pop-thunk) */
-async function animateClusterRotation(clockwise, originX, originY) {
-  const cluster = selectedCluster;
-  const pixelPos = cluster.map(h => hexToPixel(h.col, h.row, originX, originY));
-  const cx = (pixelPos[0].x + pixelPos[1].x + pixelPos[2].x) / 3;
-  const cy = (pixelPos[0].y + pixelPos[1].y + pixelPos[2].y) / 3;
-  const colors = cluster.map(h => grid[h.col][h.row].colorIndex);
-  const specials = cluster.map(h => grid[h.col][h.row].special);
-
-  const floaters = cluster.map((h, i) => {
-    setCellOverride(h.col, h.row, { hidden: true });
-    return addFloatingPiece({
-      x: pixelPos[i].x, y: pixelPos[i].y,
-      colorIndex: colors[i], special: specials[i],
-      scale: 1, alpha: 1, shadow: false,
-    });
-  });
-
-  // Pop
-  await tween(ROTATION_POP_MS, t => {
-    for (const fp of floaters) { fp.scale = 1 + 0.2 * t; fp.shadow = t > 0.3; }
-  }, easeOutCubic).promise;
-
-  const targets = clockwise
-    ? [pixelPos[1], pixelPos[2], pixelPos[0]]
-    : [pixelPos[2], pixelPos[0], pixelPos[1]];
-  const startPos = floaters.map(fp => ({ x: fp.x, y: fp.y }));
-
-  // Arc
-  await tween(ROTATION_SETTLE_MS * 0.6, t => {
-    for (let i = 0; i < 3; i++) {
-      const a0 = Math.atan2(startPos[i].y - cy, startPos[i].x - cx);
-      const a1 = Math.atan2(targets[i].y - cy, targets[i].x - cx);
-      let da = a1 - a0;
-      if (clockwise && da > 0) da -= Math.PI * 2;
-      if (!clockwise && da < 0) da += Math.PI * 2;
-      const angle = a0 + da * t;
-      const r0 = Math.hypot(startPos[i].x - cx, startPos[i].y - cy);
-      const r1 = Math.hypot(targets[i].x - cx, targets[i].y - cy);
-      const radius = r0 + (r1 - r0) * t;
-      floaters[i].x = cx + Math.cos(angle) * radius;
-      floaters[i].y = cy + Math.sin(angle) * radius;
-    }
-  }, easeOutCubic).promise;
-
-  // Settle
-  await tween(ROTATION_SETTLE_MS * 0.4, t => {
-    for (let i = 0; i < 3; i++) {
-      floaters[i].x = targets[i].x;
-      floaters[i].y = targets[i].y;
-      floaters[i].scale = 1 + 0.2 * (1 - t);
-      floaters[i].shadow = t < 0.7;
-    }
-  }, easeOutBounce).promise;
-
-  for (const fp of floaters) removeFloatingPiece(fp);
-  clearAllOverrides();
-  rotateCluster(grid, cluster, clockwise);
-}
-
-/** Animate 6-hex ring rotation around flower center */
-async function animateRingRotation(clockwise, originX, originY) {
-  const center = flowerCenter;
-  const ring = getNeighbors(center.col, center.row);
-  const centerPx = hexToPixel(center.col, center.row, originX, originY);
-  const cx = centerPx.x;
-  const cy = centerPx.y;
-
-  const pixelPos = ring.map(h => hexToPixel(h.col, h.row, originX, originY));
-  const colors = ring.map(h => grid[h.col][h.row].colorIndex);
-  const specials = ring.map(h => grid[h.col][h.row].special);
-
-  // Hide ring cells, create floating pieces
-  const floaters = ring.map((h, i) => {
-    setCellOverride(h.col, h.row, { hidden: true });
-    return addFloatingPiece({
-      x: pixelPos[i].x, y: pixelPos[i].y,
-      colorIndex: colors[i], special: specials[i],
-      scale: 1, alpha: 1, shadow: false,
-    });
-  });
-
-  // Pop
-  await tween(ROTATION_POP_MS, t => {
-    for (const fp of floaters) { fp.scale = 1 + 0.15 * t; fp.shadow = t > 0.3; }
-  }, easeOutCubic).promise;
-
-  // Targets: each piece moves one position CW or CCW
-  const targets = clockwise
-    ? ring.map((_, i) => pixelPos[(i + 1) % 6])
-    : ring.map((_, i) => pixelPos[(i + 5) % 6]);
-  const startPos = floaters.map(fp => ({ x: fp.x, y: fp.y }));
-
-  // Arc around center
-  await tween(ROTATION_SETTLE_MS * 0.7, t => {
-    for (let i = 0; i < 6; i++) {
-      const a0 = Math.atan2(startPos[i].y - cy, startPos[i].x - cx);
-      const a1 = Math.atan2(targets[i].y - cy, targets[i].x - cx);
-      let da = a1 - a0;
-      if (clockwise && da > 0) da -= Math.PI * 2;
-      if (!clockwise && da < 0) da += Math.PI * 2;
-      const angle = a0 + da * t;
-      const r0 = Math.hypot(startPos[i].x - cx, startPos[i].y - cy);
-      const r1 = Math.hypot(targets[i].x - cx, targets[i].y - cy);
-      const radius = r0 + (r1 - r0) * t;
-      floaters[i].x = cx + Math.cos(angle) * radius;
-      floaters[i].y = cy + Math.sin(angle) * radius;
-    }
-  }, easeOutCubic).promise;
-
-  // Settle
-  await tween(ROTATION_SETTLE_MS * 0.3, t => {
-    for (let i = 0; i < 6; i++) {
-      floaters[i].x = targets[i].x;
-      floaters[i].y = targets[i].y;
-      floaters[i].scale = 1 + 0.15 * (1 - t);
-      floaters[i].shadow = t < 0.7;
-    }
-  }, easeOutBounce).promise;
-
-  for (const fp of floaters) removeFloatingPiece(fp);
-  clearAllOverrides();
-  rotateRing(grid, ring, clockwise);
-}
-
-/** Animate 3-hex Y-shape rotation around black pearl center */
-async function animateYRotation(clockwise, originX, originY) {
-  const center = pearlCenter;
-  const nbrs = getNeighbors(center.col, center.row);
-  // Y-shape uses alternating neighbors (0, 2, 4)
-  const yRing = [nbrs[0], nbrs[2], nbrs[4]];
-  const centerPx = hexToPixel(center.col, center.row, originX, originY);
-  const cx = centerPx.x;
-  const cy = centerPx.y;
-
-  const pixelPos = yRing.map(h => hexToPixel(h.col, h.row, originX, originY));
-  const colors = yRing.map(h => grid[h.col][h.row].colorIndex);
-  const specials = yRing.map(h => grid[h.col][h.row].special);
-
-  // Hide Y-ring cells, create floating pieces
-  const floaters = yRing.map((h, i) => {
-    setCellOverride(h.col, h.row, { hidden: true });
-    return addFloatingPiece({
-      x: pixelPos[i].x, y: pixelPos[i].y,
-      colorIndex: colors[i], special: specials[i],
-      scale: 1, alpha: 1, shadow: false,
-    });
-  });
-
-  // Pop
-  await tween(ROTATION_POP_MS, t => {
-    for (const fp of floaters) { fp.scale = 1 + 0.15 * t; fp.shadow = t > 0.3; }
-  }, easeOutCubic).promise;
-
-  // Targets: each piece moves to the next position in the Y
-  const targets = clockwise
-    ? [pixelPos[1], pixelPos[2], pixelPos[0]]
-    : [pixelPos[2], pixelPos[0], pixelPos[1]];
-  const startPos = floaters.map(fp => ({ x: fp.x, y: fp.y }));
-
-  // Arc around center
-  await tween(ROTATION_SETTLE_MS * 0.7, t => {
-    for (let i = 0; i < 3; i++) {
-      const a0 = Math.atan2(startPos[i].y - cy, startPos[i].x - cx);
-      const a1 = Math.atan2(targets[i].y - cy, targets[i].x - cx);
-      let da = a1 - a0;
-      if (clockwise && da > 0) da -= Math.PI * 2;
-      if (!clockwise && da < 0) da += Math.PI * 2;
-      const angle = a0 + da * t;
-      const r0 = Math.hypot(startPos[i].x - cx, startPos[i].y - cy);
-      const r1 = Math.hypot(targets[i].x - cx, targets[i].y - cy);
-      const radius = r0 + (r1 - r0) * t;
-      floaters[i].x = cx + Math.cos(angle) * radius;
-      floaters[i].y = cy + Math.sin(angle) * radius;
-    }
-  }, easeOutCubic).promise;
-
-  // Settle
-  await tween(ROTATION_SETTLE_MS * 0.3, t => {
-    for (let i = 0; i < 3; i++) {
-      floaters[i].x = targets[i].x;
-      floaters[i].y = targets[i].y;
-      floaters[i].scale = 1 + 0.15 * (1 - t);
-      floaters[i].shadow = t < 0.7;
-    }
-  }, easeOutBounce).promise;
-
-  for (const fp of floaters) removeFloatingPiece(fp);
-  clearAllOverrides();
-
-  // Apply the Y-rotation to the grid: rotate the 3 cells
-  const saved = yRing.map(h => grid[h.col][h.row]);
-  if (clockwise) {
-    grid[yRing[0].col][yRing[0].row] = saved[2];
-    grid[yRing[1].col][yRing[1].row] = saved[0];
-    grid[yRing[2].col][yRing[2].row] = saved[1];
-  } else {
-    grid[yRing[0].col][yRing[0].row] = saved[1];
-    grid[yRing[1].col][yRing[1].row] = saved[2];
-    grid[yRing[2].col][yRing[2].row] = saved[0];
-  }
-}
-
-/**
- * Animate black pearl creation: starflower ring implodes into center,
- * dramatic particle burst, pearl scale-pulse.
- */
-async function animateBlackPearlCreation(bpResults) {
-  const { originX, originY } = getOrigin();
-
-  let queuedBlackpearls = 0;
-  for (const bp of bpResults) {
-    const centerPx = hexToPixel(bp.center.col, bp.center.row, originX, originY);
-
-    if (bp.centerAlreadySpecial) {
-      queuedBlackpearls++;
-    } else {
-      // Mutate center to black pearl now (detection was non-mutating)
-      const centerCell = grid[bp.center.col][bp.center.row];
-      if (centerCell) {
-        centerCell.colorIndex = -2;
-        centerCell.special = 'blackpearl';
-        delete centerCell.bombTimer;
-      }
-    }
-
-    // Phase 1: Ring implodes — starflower pieces shrink toward center (400ms)
-    await tween(400, t => {
-      for (const pos of bp.ring) {
-        if (grid[pos.col]?.[pos.row]) {
-          const px = hexToPixel(pos.col, pos.row, originX, originY);
-          const dx = (centerPx.x - px.x) * t * 0.4;
-          const dy = (centerPx.y - px.y) * t * 0.4;
-          setCellOverride(pos.col, pos.row, {
-            scale: 1 - t * 0.6,
-            alpha: 1 - t * 0.7,
-            offsetX: dx,
-            offsetY: dy,
-          });
-        }
-      }
-    }, easeOutCubic).promise;
-
-    // Clear the absorbed starflowers
-    for (const pos of bp.ring) {
-      if (grid[pos.col][pos.row] && grid[pos.col][pos.row].special !== 'grandpoobah') {
-        grid[pos.col][pos.row] = null;
-      }
-    }
-    clearAllOverrides();
-
-    // Phase 2: Particle burst with deep purple hues
-    spawnCreationParticles(centerPx.x, centerPx.y, 24);
-
-    // Phase 3: Pearl scale-pulse (600ms)
-    await tween(600, t => {
-      let scale;
-      if (t < 0.2) {
-        scale = 1 + 0.6 * (t / 0.2);
-      } else {
-        const settleT = (t - 0.2) / 0.8;
-        scale = 1.6 - 0.6 * settleT;
-      }
-      setCellOverride(bp.center.col, bp.center.row, { scale });
-    }, easeOutCubic).promise;
-
-    clearAllOverrides();
-  }
-
-  // Gravity and refill
-  const fallMap = computeFallDistances();
-  if (fallMap.length > 0) {
-    const maxDist = Math.max(...fallMap.map(f => f.dist));
-    const fallDuration = GRAVITY_MS * maxDist;
-
-    const fallers = fallMap.map(f => {
-      const startPx = hexToPixel(f.col, f.fromRow, originX, originY);
-      const endPx = hexToPixel(f.col, f.toRow, originX, originY);
-      setCellOverride(f.col, f.fromRow, { hidden: true });
-      return {
-        fp: addFloatingPiece({
-          x: startPx.x, y: startPx.y,
-          colorIndex: f.colorIndex,
-          special: f.special,
-          bombTimer: f.bombTimer,
-          scale: 1, alpha: 1, shadow: false,
-        }),
-        startY: startPx.y,
-        endY: endPx.y,
-      };
-    });
-
-    await tween(fallDuration, t => {
-      for (const f of fallers) {
-        f.fp.y = f.startY + (f.endY - f.startY) * t;
-      }
-    }, easeOutBounce).promise;
-
-    for (const f of fallers) removeFloatingPiece(f.fp);
-    clearAllOverrides();
-  }
-
-  applyGravity(grid);
-  const mode = getActiveGameMode();
-  const filled = fillEmpty(grid, undefined, undefined, undefined, mode.hasBombs && bombQueued, { starflowers: 0, blackpearls: queuedBlackpearls });
-  if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
-}
-
-async function animateGrandPoobahCreation(gpResults) {
-  const { originX, originY } = getOrigin();
-  let queuedGrandPoobahs = 0;
-
-  for (const gp of gpResults) {
-    const centerPx = hexToPixel(gp.center.col, gp.center.row, originX, originY);
-
-    if (gp.centerAlreadySpecial) {
-      queuedGrandPoobahs++;
-    } else {
-      const centerCell = grid[gp.center.col][gp.center.row];
-      if (centerCell) {
-        centerCell.colorIndex = -3;
-        centerCell.special = 'grandpoobah';
-        delete centerCell.bombTimer;
-      }
-    }
-
-    // Phase 1: Ring implodes
-    await tween(400, t => {
-      for (const pos of gp.ring) {
-        if (grid[pos.col]?.[pos.row]) {
-          const px = hexToPixel(pos.col, pos.row, originX, originY);
-          const dx = (centerPx.x - px.x) * t * 0.4;
-          const dy = (centerPx.y - px.y) * t * 0.4;
-          setCellOverride(pos.col, pos.row, {
-            scale: 1 - t * 0.6,
-            alpha: 1 - t * 0.7,
-            offsetX: dx,
-            offsetY: dy,
-          });
-        }
-      }
-    }, easeOutCubic).promise;
-
-    for (const pos of gp.ring) {
-      if (grid[pos.col][pos.row] && grid[pos.col][pos.row].special !== 'grandpoobah') {
-        grid[pos.col][pos.row] = null;
-      }
-    }
-    clearAllOverrides();
-
-    // Phase 2: Majestic particle burst
-    spawnCreationParticles(centerPx.x, centerPx.y, 40);
-
-    // Phase 3: Pulse
-    await tween(800, t => {
-      let scale;
-      if (t < 0.2) {
-        scale = 1 + 0.8 * (t / 0.2);
-      } else {
-        const settleT = (t - 0.2) / 0.8;
-        scale = 1.8 - 0.8 * settleT;
-      }
-      setCellOverride(gp.center.col, gp.center.row, { scale });
-    }, easeOutCubic).promise;
-
-    clearAllOverrides();
-  }
-
-  // Gravity and refill
-  const fallMap = computeFallDistances();
-  if (fallMap.length > 0) {
-    const maxDist = Math.max(...fallMap.map(f => f.dist));
-    const fallDuration = GRAVITY_MS * maxDist;
-
-    const fallers = fallMap.map(f => {
-      const startPx = hexToPixel(f.col, f.fromRow, originX, originY);
-      const endPx = hexToPixel(f.col, f.toRow, originX, originY);
-      setCellOverride(f.col, f.fromRow, { hidden: true });
-      return {
-        fp: addFloatingPiece({
-          x: startPx.x, y: startPx.y,
-          colorIndex: f.colorIndex,
-          special: f.special,
-          bombTimer: f.bombTimer,
-          scale: 1, alpha: 1, shadow: false,
-        }),
-        startY: startPx.y,
-        endY: endPx.y,
-      };
-    });
-
-    await tween(fallDuration, t => {
-      for (const f of fallers) f.fp.y = f.startY + (f.endY - f.startY) * t;
-    }, easeOutBounce).promise;
-
-    for (const f of fallers) removeFloatingPiece(f.fp);
-    clearAllOverrides();
-  }
-
-  applyGravity(grid);
-  const mode = getActiveGameMode();
-  const filled = fillEmpty(grid, undefined, undefined, undefined, mode.hasBombs && bombQueued, { starflowers: 0, blackpearls: 0, grandpoobahs: queuedGrandPoobahs });
-  if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
-
-  handleGameWin();
+  await postRotationCheck(gen);
 }
 
 function handleGameWin() {
   state = 'gameover';
+  prepopulateNameInputs();
   document.getElementById('modal-gamewin').classList.remove('hidden');
 }
 
-async function handleOverAchiever() {
-  state = 'gameover';
-  const combinedId = getCombinedModeId();
-  clearGameState(combinedId);
-  addHighScore(combinedId, getScore(), 'over-achiever');
-
-  document.getElementById('go-oa-score').textContent = getScore().toLocaleString();
-  document.getElementById('go-oa-combo').textContent = `x${getComboCount()}`;
-  document.getElementById('modal-over-achiever').classList.remove('hidden');
-
-  // Board explosion (reuse game-over explosion aesthetic)
-  const { originX, originY } = getOrigin();
-  const floaters = [];
-
-  for (let c = 0; c < GRID_COLS; c++) {
-    for (let r = 0; r < GRID_ROWS; r++) {
-      if (grid[c][r]) {
-        const px = hexToPixel(c, r, originX, originY);
-        const dx = px.x - (originX + (GRID_COLS * 30));
-        const dy = px.y - (originY + (GRID_ROWS * 30));
-        const angle = Math.atan2(dy, dx);
-        const speed = 10 + Math.random() * 20;
-
-        const fp = addFloatingPiece({
-          x: px.x, y: px.y,
-          colorIndex: grid[c][r].colorIndex,
-          special: grid[c][r].special,
-          scale: 1, alpha: 1, shadow: false
-        });
-
-        floaters.push({
-          fp,
-          vx: Math.cos(angle) * speed,
-          vy: Math.sin(angle) * speed,
-          rot: (Math.random() - 0.5) * 0.5
-        });
-
-        grid[c][r] = null;
-      }
-    }
-  }
-
-  await tween(1500, t => {
-    for (const item of floaters) {
-      item.fp.x += item.vx;
-      item.fp.y += item.vy;
-      item.fp.vy += 0.5;
-      item.fp.alpha = 1 - t;
-    }
-  }, easeOutCubic).promise;
-
-  for (const item of floaters) {
-    removeFloatingPiece(item.fp);
-  }
-}
-
-/** Shared post-rotation logic: tick bombs, cascade or detect specials */
-async function postRotationCheck() {
+/** Shared post-rotation logic: tick bombs, cascade or detect specials.
+ *  @param {number} gen — boardGeneration at call time; bail out if it changes.
+ *                        Always pass explicitly — do not rely on a default capture. */
+async function postRotationCheck(gen) {
+  // Guard: callers must pass gen so stale async chains bail correctly.
+  if (gen === undefined) gen = boardGeneration;
   moveCount++;
+  const ctx = getAnimationContext();
 
   const mode = getActiveGameMode();
 
-  // Tick bomb timers and spawn new bombs only in modes that support them
-  if (mode.hasBombs) {
+  // Tick bomb timers in any mode that has them (arcade + puzzle pre-placed bombs)
+  // Only spawn new bombs in arcade (hasBombs). Puzzle uses pre-placed bombs only.
+  if (mode.ticksBombs) {
     tickBombs(grid);
-    
+
     // Animate bomb shake on tick
     const bombCells = [];
-    for (let c = 0; c < GRID_COLS; c++) {
-      for (let r = 0; r < GRID_ROWS; r++) {
+    for (let c = 0; c < activeCols; c++) {
+      for (let r = 0; r < activeRows; r++) {
         if (grid[c][r]?.special === 'bomb') bombCells.push({ c, r });
       }
     }
@@ -1143,20 +849,20 @@ async function postRotationCheck() {
         for (const b of bombCells) {
           setCellOverride(b.c, b.r, { offsetX: shakeX });
         }
-        requestRedraw(); // MUST redraw during the tween!
+        requestRedraw();
       }, linear).promise;
+      if (boardGeneration !== gen) return;
       for (const b of bombCells) clearCellOverride(b.c, b.r);
       requestRedraw();
     }
 
-    // Difficulty scaling: dynamically calculate interval based on score
-    // Max 15 moves per bomb initially, eventually scaling down to every 4 moves.
-    const currentScore = getScore();
-    // E.g. spawn interval decreases by 1 for every 5000 score, min 4
-    let dynamicInterval = 15 - Math.floor(currentScore / 5000);
-    if (dynamicInterval < 4) dynamicInterval = 4;
-    
-    if (moveCount % dynamicInterval === 0) bombQueued = true;
+    // Spawn new bombs only in arcade mode
+    if (mode.hasBombs) {
+      const currentScore = getScore();
+      let dynamicInterval = 15 - Math.floor(currentScore / 5000);
+      if (dynamicInterval < 4) dynamicInterval = 4;
+      if (moveCount % dynamicInterval === 0) bombQueued = true;
+    }
   }
 
   // Centralized Board State Resolution Logic
@@ -1164,21 +870,24 @@ async function postRotationCheck() {
   let isFirstStep = true;
 
   while (!boardStable) {
+    if (boardGeneration !== gen) return;
     boardStable = true;
 
     // Check for Grand Poobah Ring (Over-Achiever) before anything else
     const gpRing = detectGrandPoobahRing(grid);
     if (gpRing.length > 0) {
-      await handleOverAchiever();
+      await handleOverAchiever(ctx);
       return;
     }
 
     const gpResults = detectGrandPoobahs(grid);
     if (gpResults.length > 0) {
       if (!isFirstStep) { advanceChain(); await delay(100); }
+      if (boardGeneration !== gen) return;
       isFirstStep = false;
       state = 'cascading';
-      await animateGrandPoobahCreation(gpResults);
+      await animateGrandPoobahCreation(ctx, gpResults);
+      if (boardGeneration !== gen) return;
       boardStable = false;
       continue;
     }
@@ -1186,9 +895,11 @@ async function postRotationCheck() {
     const bpResults = detectBlackPearls(grid);
     if (bpResults.length > 0) {
       if (!isFirstStep) { advanceChain(); await delay(100); }
+      if (boardGeneration !== gen) return;
       isFirstStep = false;
       state = 'cascading';
-      await animateBlackPearlCreation(bpResults);
+      await animateBlackPearlCreation(ctx, bpResults);
+      if (boardGeneration !== gen) return;
       boardStable = false;
       continue;
     }
@@ -1196,19 +907,23 @@ async function postRotationCheck() {
     const sfResults = detectStarflowers(grid);
     if (sfResults.length > 0) {
       if (!isFirstStep) { advanceChain(); await delay(100); }
+      if (boardGeneration !== gen) return;
       isFirstStep = false;
       state = 'cascading';
-      await animateStarflowerCreation(sfResults);
+      await animateStarflowerCreation(ctx, sfResults);
+      if (boardGeneration !== gen) return;
       boardStable = false;
       continue;
     }
 
-    const matches = findMatchesForMode(grid, GRID_COLS, GRID_ROWS);
+    const matches = findMatchesForMode(grid, activeCols, activeRows);
     if (matches.size > 0) {
       if (!isFirstStep) { advanceChain(); await delay(100); }
+      if (boardGeneration !== gen) return;
       isFirstStep = false;
       state = 'cascading';
-      await runCascade(matches);
+      await runCascade(ctx, matches, gen);
+      if (boardGeneration !== gen) return;
       boardStable = false;
       continue;
     }
@@ -1226,114 +941,43 @@ async function postRotationCheck() {
   }
 
   resetChain();
-  saveGame();
 
+  // Puzzle move tracking
+  const activePuzzle = getActivePuzzle();
+  if (activePuzzle) {
+    onPuzzleMove(grid, getScore(), getChainLevel());
+    // Don't saveGame for puzzles — fixed board, no persistence needed
+  } else {
+    saveGame();
+  }
 
   // Final check: did any un-cleared bombs expire?
-  if (mode.hasBombs && mode.hasGameOver) {
+  // ticksBombs covers both arcade (hasBombs) and puzzle (pre-placed bombs)
+  if (mode.ticksBombs && mode.hasGameOver) {
     let exploded = false;
-    for (let c = 0; c < GRID_COLS; c++) {
-      for (let r = 0; r < GRID_ROWS; r++) {
-         if (grid[c][r]?.special === 'bomb' && grid[c][r].bombTimer <= 0) {
+    for (let c = 0; c < activeCols; c++) {
+      for (let r = 0; r < activeRows; r++) {
+         if (grid[c]?.[r]?.special === 'bomb' && grid[c][r].bombTimer <= 0) {
              exploded = true;
              break;
          }
       }
     }
     if (exploded) {
-       handleGameOver(false);
+       handleGameOver(ctx, false);
        return;
     }
   }
 }
 
-async function handleGameOver(isSessionEnd = false) {
-  state = 'gameover';
-  const combinedId = getCombinedModeId();
-  clearGameState(combinedId);
-  addHighScore(combinedId, getScore());
-  console.log('Game/Session Over. High score saved.');
-
-  // 1. Show Game Over Modal (only if not a peaceful chill session end)
-  const gameOverMsgEl = document.querySelector('.gameover-message');
-  if (!isSessionEnd) {
-    document.querySelector('#modal-gameover h2').textContent = 'GAME OVER';
-    document.querySelector('#modal-gameover h2').style.color = '#ff4444';
-    document.querySelector('#modal-gameover h2').style.borderColor = '#ff4444';
-    if (gameOverMsgEl) {
-      gameOverMsgEl.style.display = 'block';
-      gameOverMsgEl.textContent = '💣 A bomb exploded!';
-    }
-
-    document.getElementById('go-score').textContent = getScore().toLocaleString();
-    document.getElementById('go-combo').textContent = `x${getComboCount()}`;
-    document.getElementById('modal-gameover').classList.remove('hidden');
-  }
-
-  // 2. Explode the board!
-  const { originX, originY } = getOrigin();
-  const floaters = [];
-
-  for (let c = 0; c < GRID_COLS; c++) {
-    for (let r = 0; r < GRID_ROWS; r++) {
-      if (grid[c][r]) {
-        const px = hexToPixel(c, r, originX, originY);
-        
-        // Create a floater that flies away from center
-        const dx = px.x - (originX + (GRID_COLS * 30)); // Rough center approx
-        const dy = px.y - (originY + (GRID_ROWS * 30));
-        const angle = Math.atan2(dy, dx);
-        const speed = 10 + Math.random() * 20;
-
-        const fp = addFloatingPiece({
-          x: px.x, y: px.y,
-          colorIndex: grid[c][r].colorIndex,
-          special: grid[c][r].special,
-          scale: 1, alpha: 1, shadow: false
-        });
-        
-        // We'll attach velocity to the floater object strictly for this animation loop
-        // (renderer doesn't use vx/vy, so we'll tween or manually update)
-        // Let's use a quick tween to blast them off
-        floaters.push({
-            fp, 
-            vx: Math.cos(angle) * speed, 
-            vy: Math.sin(angle) * speed,
-            rot: (Math.random() - 0.5) * 0.5
-        });
-        
-        // Clear grid cell immediately so drawFrame doesn't show it
-        grid[c][r] = null;
-      }
-    }
-  }
-
-  // Animate the explosion
-  // We can do a custom loop or just a tween that updates them
-  await tween(1500, t => {
-    for (const item of floaters) {
-      item.fp.x += item.vx;
-      item.fp.y += item.vy;
-      item.fp.vy += 0.5; // Gravity
-      item.fp.alpha = 1 - t; // Fade out
-      // item.fp.rotation += item.rot; // Renderer doesn't support rotation yet, but that's fine
-    }
-  }, easeOutCubic).promise;
-
-  // Cleanup
-  for (const item of floaters) {
-    removeFloatingPiece(item.fp);
-  }
-
-  if (isSessionEnd) {
-    resetGame();
-  }
-}
-
 function resetGame() {
+  boardGeneration++;
   resetScore();
   resetChain();
   grid = createGrid();
+  activeCols = GRID_COLS;
+  activeRows = GRID_ROWS;
+  setActiveGridSize(GRID_COLS, GRID_ROWS);
   state = 'idle';
   moveCount = 0;
   bombQueued = false;
@@ -1357,153 +1001,16 @@ function saveGame() {
     displayScore: getDisplayScore(),
     chainLevel: getChainLevel(),
     comboCount: getComboCount(),
+    maxCombo: getMaxCombo(),
   });
 }
 
 // ─── Cascade logic ──────────────────────────────────────────────
 
-/**
- * Animate a starflower being created: flash ring tiles, shrink/fade them,
- * clear them, gravity, refill.
- * @param {Array<{center, ring, ringColor}>} sfResults
- */
-async function animateStarflowerCreation(sfResults) {
-  // Collect all ring positions across all starflowers
-  const allRing = [];
-  const centers = [];
-  for (const sf of sfResults) {
-    centers.push(sf.center);
-    for (const pos of sf.ring) {
-      allRing.push(pos);
-    }
-  }
-  if (allRing.length === 0) return;
-
-  const { originX, originY } = getOrigin();
-
-  // Phase 1: Flash ring tiles bright (200ms)
-  await tween(200, t => {
-    for (const pos of allRing) {
-      if (grid[pos.col]?.[pos.row]) {
-        setCellOverride(pos.col, pos.row, {
-          scale: 1 + 0.15 * t,
-        });
-      }
-    }
-  }, easeOutCubic).promise;
-
-  // Phase 2: Shrink and fade ring tiles (300ms)
-  await tween(300, t => {
-    for (const pos of allRing) {
-      if (grid[pos.col]?.[pos.row]) {
-        setCellOverride(pos.col, pos.row, {
-          scale: (1.15) * (1 - t * 0.9),
-          alpha: 1 - t,
-        });
-      }
-    }
-  }, easeOutCubic).promise;
-
-  // Clear ring tiles
-  console.log('Clearing ring tiles. Count:', allRing.length);
-  for (const pos of allRing) {
-    if (grid[pos.col][pos.row] && grid[pos.col][pos.row].special !== 'grandpoobah') {
-      console.log(`Clearing ${pos.col},${pos.row}. Was:`, grid[pos.col][pos.row]);
-      grid[pos.col][pos.row] = null;
-    }
-  }
-  clearAllOverrides();
-
-  // ── Phase 3: CELEBRATION — star piece appears with flair ──────
-
-  // Spawn particle bursts from each star center
-  for (const center of centers) {
-    const px = hexToPixel(center.col, center.row, originX, originY);
-    spawnCreationParticles(px.x, px.y, 20);
-  }
-
-  let queuedStarflowers = 0;
-  // Mutate center to be a Starflower
-  for (const sf of sfResults) {
-    if (sf.centerAlreadySpecial) {
-      queuedStarflowers++;
-    } else {
-      const center = sf.center;
-      if (grid[center.col] && grid[center.col][center.row]) {
-        grid[center.col][center.row].colorIndex = -1;
-        grid[center.col][center.row].special = 'starflower';
-        delete grid[center.col][center.row].bombTimer;
-      }
-    }
-  }
-
-  // Star piece pulse: scale up big then settle
-  await tween(500, t => {
-    for (const center of centers) {
-      // Sharp pop then smooth settle
-      let scale;
-      if (t < 0.25) {
-        // Rapid expand 1.0 → 1.5
-        scale = 1 + 0.5 * (t / 0.25);
-      } else {
-        // Smooth settle 1.5 → 1.0
-        const settleT = (t - 0.25) / 0.75;
-        scale = 1.5 - 0.5 * settleT;
-      }
-
-      setCellOverride(center.col, center.row, {
-        scale,
-      });
-    }
-  }, easeOutCubic).promise;
-
-  clearAllOverrides();
-
-  // Animated gravity
-  const fallMap = computeFallDistances();
-  if (fallMap.length > 0) {
-    const maxDist = Math.max(...fallMap.map(f => f.dist));
-    const fallDuration = GRAVITY_MS * maxDist;
-
-    const fallers = fallMap.map(f => {
-      const startPx = hexToPixel(f.col, f.fromRow, originX, originY);
-      const endPx = hexToPixel(f.col, f.toRow, originX, originY);
-      setCellOverride(f.col, f.fromRow, { hidden: true });
-      return {
-        fp: addFloatingPiece({
-          x: startPx.x, y: startPx.y,
-          colorIndex: f.colorIndex,
-          special: f.special,
-          bombTimer: f.bombTimer,
-          scale: 1, alpha: 1, shadow: false,
-        }),
-        startY: startPx.y,
-        endY: endPx.y,
-      };
-    });
-
-    await tween(fallDuration, t => {
-      for (const f of fallers) {
-        f.fp.y = f.startY + (f.endY - f.startY) * t;
-      }
-    }, easeOutBounce).promise;
-
-    for (const f of fallers) removeFloatingPiece(f.fp);
-    clearAllOverrides();
-  }
-
-  applyGravity(grid);
-  {
-    const mode = getActiveGameMode();
-    const filled = fillEmpty(grid, undefined, undefined, undefined, mode.hasBombs && bombQueued, { starflowers: queuedStarflowers, blackpearls: 0 });
-    if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
-  }
-}
-
 async function startCascade() {
   state = 'cascading';
 
-  const matches = findMatchesForMode(grid, GRID_COLS, GRID_ROWS);
+  const matches = findMatchesForMode(grid, activeCols, activeRows);
   if (matches.size === 0) {
     // No match — just deselect
     selectedCluster = null;
@@ -1512,340 +1019,33 @@ async function startCascade() {
     return;
   }
 
-  await runCascade(matches);
+  await runCascade(getAnimationContext(), matches);
 
   selectedCluster = null;
   state = 'idle';
   resetChain();
 }
 
-async function runCascade(initialMatches) {
-  const pendingMatches = new Set(initialMatches);
-  const multiplierClusters = detectMultiplierClusters(grid);
-
-  // 1. Merge multiplier clusters into pendingMatches
-  const explosionSources = [];
-  const colorNukeColors = new Set();
-  let scoreBonus = 1;
-
-  for (const cluster of multiplierClusters) {
-    const clusterArr = Array.from(cluster);
-    // Add to pending
-    for (const key of cluster) pendingMatches.add(key);
-
-    // Analyze colors
-    const colors = new Set(clusterArr.map(k => {
-      const [c,r] = k.split(',').map(Number);
-      return grid[c][r].colorIndex;
-    }));
-
-    if (colors.size === 1) {
-      // Same color -> Color Nuke
-      colorNukeColors.add(colors.values().next().value);
-    } else {
-      // Mixed color -> Explosion
-      const firstKey = clusterArr[0];
-      const [c,r] = firstKey.split(',').map(Number);
-      // Use center of mass or just all cells as source?
-      // Requirement: "clear those pieces along with every single tile immediately surrounding them"
-      // We will add all cluster cells as explosion sources
-      for (const k of cluster) explosionSources.push(k);
-    }
-    scoreBonus += 0.5 * cluster.size; // Bonus for multiplier clusters
-  }
-
-  // 2. Check for Bomb + Multiplier (Same Color) in pendingMatches
-  //    (This covers the case where findMatches caught them or they were added above)
-  const colorPresence = {}; // colorIndex -> { hasBomb: bool, hasMultiplier: bool }
-  for (const key of pendingMatches) {
-    const [c,r] = key.split(',').map(Number);
-    const cell = grid[c][r];
-    if (!cell) continue;
-    const color = cell.colorIndex;
-    if (!colorPresence[color]) colorPresence[color] = { hasBomb: false, hasMultiplier: false };
-    
-    if (cell.special === 'bomb') colorPresence[color].hasBomb = true;
-    if (cell.special === 'multiplier') {
-      colorPresence[color].hasMultiplier = true;
-      scoreBonus += 0.5; // Bonus for any cleared multiplier
-    }
-  }
-
-  for (const color in colorPresence) {
-    if (colorPresence[color].hasBomb && colorPresence[color].hasMultiplier) {
-      colorNukeColors.add(Number(color));
-    }
-  }
-
-  // 3. Apply Actions (expand pendingMatches)
-  
-  // Color Nuke
-  if (colorNukeColors.size > 0) {
-    for (let c = 0; c < GRID_COLS; c++) {
-      for (let r = 0; r < GRID_ROWS; r++) {
-        if (grid[c][r] && colorNukeColors.has(grid[c][r].colorIndex)) {
-            // Exclude starflowers/blackpearls from color nuke?
-            // "clearing the bomb and all other tiles of that color"
-            // Usually specials like starflower (color -1) aren't targeted by normal colors (0-5).
-            if (grid[c][r].colorIndex >= 0) {
-              pendingMatches.add(`${c},${r}`);
-            }
-        }
-      }
-    }
-  }
-
-  // Explosion
-  for (const srcKey of explosionSources) {
-    const [c, r] = srcKey.split(',').map(Number);
-    const nbrs = getNeighbors(c, r);
-    for (const n of nbrs) {
-      if (n.col >= 0 && n.col < GRID_COLS && n.row >= 0 && n.row < GRID_ROWS) {
-        // Explode neighbors (unless they are indestuctible?)
-        if (grid[n.col][n.row] &&
-            grid[n.col][n.row].special !== 'blackpearl' &&
-            grid[n.col][n.row].special !== 'starflower' &&
-            grid[n.col][n.row].special !== 'grandpoobah') { // Trophy tiles are indestructible
-             pendingMatches.add(`${n.col},${n.row}`);
-        }
-      }
-    }
-  }
-
-  const matches = pendingMatches;
-
-  // ── Star match special effects (play BEFORE the flash-and-clear) ─
-  const { originX, originY } = getOrigin();
-
-  if (colorNukeColors.size > 0 && multiplierClusters.length > 0) {
-    // ── Scenario 1: Color Nuke (same-color star cluster) ──────────
-    // Use the first nuke color to pick a representative tile on the board
-    const nukeColor = colorNukeColors.values().next().value;
-    // Find the cluster that triggered the nuke
-    const nukeCluster = multiplierClusters.find(cluster => {
-      const arr = Array.from(cluster);
-      const colors = new Set(arr.map(k => { const [c,r] = k.split(',').map(Number); return grid[c][r]?.colorIndex; }));
-      return colors.size === 1 && colors.has(nukeColor);
-    });
-    if (nukeCluster) {
-      const arr = Array.from(nukeCluster);
-      let sumX = 0, sumY = 0;
-      for (const k of arr) {
-        const [c,r] = k.split(',').map(Number);
-        const px = hexToPixel(c, r, originX, originY);
-        sumX += px.x; sumY += px.y;
-      }
-      const cx = sumX / arr.length, cy = sumY / arr.length;
-      // Color-tinted burst + screen tint + shockwave
-      spawnColorNukeParticles(cx, cy, nukeColor, 50);
-      // Pick RGB from color index for the overlay and shockwave
-      const colorRGBs = [[224,48,48],[232,128,32],[32,128,224],[48,168,64],[128,64,192],[32,176,176]];
-      const [rr,gg,bb] = colorRGBs[nukeColor] || [255,255,255];
-      flashScreenOverlay(rr, gg, bb, 0.18, 35);
-      spawnRingShockwave(cx, cy, 200, rr, gg, bb);
-      spawnRingShockwave(cx, cy, 140, rr, gg, bb);
-      await new Promise(res => setTimeout(res, 250));
-    }
-  } else if (explosionSources.length > 0) {
-    // ── Scenario 2: Explosion (mixed-color star cluster) ──────────
-    let sumX = 0, sumY = 0;
-    for (const k of explosionSources) {
-      const [c,r] = k.split(',').map(Number);
-      const px = hexToPixel(c, r, originX, originY);
-      sumX += px.x; sumY += px.y;
-    }
-    const cx = sumX / explosionSources.length, cy = sumY / explosionSources.length;
-
-    spawnExplosionParticles(cx, cy, 70);
-    flashScreenOverlay(255, 200, 80, 0.20, 30);
-    spawnRingShockwave(cx, cy, 260, 255, 200, 80);
-    spawnRingShockwave(cx, cy, 180, 255, 240, 160);
-
-    // Board-wide ripple shake radiating outward from the explosion center
-    await tween(280, t => {
-      for (let c = 0; c < GRID_COLS; c++) {
-        for (let r = 0; r < GRID_ROWS; r++) {
-          if (!grid[c][r]) continue;
-          const px = hexToPixel(c, r, originX, originY);
-          const dist = Math.hypot(px.x - cx, px.y - cy);
-          const delay = dist / 400; // 0..~1
-          const localT = Math.max(0, Math.min(1, (t - delay) / (1 - delay)));
-          const shake = Math.sin(localT * Math.PI * 3) * 5 * (1 - t);
-          setCellOverride(c, r, { offsetX: shake, offsetY: shake * 0.5 });
-        }
-      }
-      requestRedraw();
-    }, linear).promise;
-    clearAllOverrides();
-  }
-
-  // ── Scenario 3: Bomb + Star nuke — detect and add extra effect ─
-  // Check if any bomb triggered a color nuke (colorPresence already computed)
-  {
-    let bombNukeColor = -1;
-    for (const color in colorPresence) {
-      if (colorPresence[color].hasBomb && colorPresence[color].hasMultiplier) {
-        bombNukeColor = Number(color);
-        break;
-      }
-    }
-    if (bombNukeColor >= 0) {
-      // Find the bomb cell
-      let bombPx = null;
-      for (const key of matches) {
-        const [c,r] = key.split(',').map(Number);
-        if (grid[c][r]?.special === 'bomb' && grid[c][r]?.colorIndex === bombNukeColor) {
-          bombPx = hexToPixel(c, r, originX, originY);
-          break;
-        }
-      }
-      if (bombPx) {
-        // Red danger flash + red-orange burst centered on the bomb
-        flashScreenOverlay(255, 30, 30, 0.28, 40);
-        spawnExplosionParticles(bombPx.x, bombPx.y, 50);
-        spawnRingShockwave(bombPx.x, bombPx.y, 220, 255, 60, 30);
-        spawnRingShockwave(bombPx.x, bombPx.y, 130, 255, 120, 60);
-        await new Promise(res => setTimeout(res, 200));
-      }
-    }
-  }
-
-  // ── Flash matched cells ────────────────────────────────────
-  await tween(MATCH_FLASH_MS, t => {
-    for (const key of matches) {
-      const [c, r] = key.split(',').map(Number);
-      if (grid[c][r]) { // Start check: cell might be null if processed? No, we haven't cleared yet.
-        if (t < 0.3) {
-          setCellOverride(c, r, { scale: 1 + 0.1 * (t / 0.3) });
-        } else {
-          const fadeT = (t - 0.3) / 0.7;
-          setCellOverride(c, r, {
-            scale: 1.1 * (1 - fadeT * 0.8),
-            alpha: 1 - fadeT,
-          });
-        }
-      }
-    }
-  }, easeOutCubic).promise;
-
-  // ── Remove matched cells ───────────────────────────────────
-  const points = awardMatch(matches.size, scoreBonus);
-
-  // Floating score popup at centroid of cleared cells
-  {
-    const { originX, originY } = getOrigin();
-    let sumX = 0, sumY = 0;
-    for (const key of matches) {
-      const [c, r] = key.split(',').map(Number);
-      const px = hexToPixel(c, r, originX, originY);
-      sumX += px.x;
-      sumY += px.y;
-    }
-    spawnScorePopup(sumX / matches.size, sumY / matches.size, points, getChainLevel());
-  }
-
-  for (const key of matches) {
-    const [c, r] = key.split(',').map(Number);
-    grid[c][r] = null;
-  }
-  clearAllOverrides();
-  requestRedraw();
-
-  // ── Starflower detection at cleared positions ──────────────
-  const sfMid = detectStarflowersAtCleared(grid, matches);
-  if (sfMid.length > 0) {
-    await animateStarflowerCreation(sfMid);
-
-    // Check for black pearls immediately formed by these new starflowers
-    const bpMid = detectBlackPearls(grid);
-    if (bpMid.length > 0) {
-      await animateBlackPearlCreation(bpMid);
-    }
-  }
-
-  // ── Gravity: animate pieces falling ────────────────────────
-  const fallMap = computeFallDistances();
-
-  if (fallMap.length > 0) {
-    const maxDist = Math.max(...fallMap.map(f => f.dist));
-    const fallDuration = GRAVITY_MS * maxDist;
-    const { originX, originY } = getOrigin();
-
-    const fallers = fallMap.map(f => {
-      const startPx = hexToPixel(f.col, f.fromRow, originX, originY);
-      const endPx = hexToPixel(f.col, f.toRow, originX, originY);
-      setCellOverride(f.col, f.fromRow, { hidden: true });
-      return {
-        fp: addFloatingPiece({
-          x: startPx.x,
-          y: startPx.y,
-          colorIndex: f.colorIndex,
-          special: f.special,
-          bombTimer: f.bombTimer,
-          scale: 1,
-          alpha: 1,
-          shadow: false,
-        }),
-        startY: startPx.y,
-        endY: endPx.y,
-        x: startPx.x,
-      };
-    });
-
-    await tween(fallDuration, t => {
-      for (const f of fallers) {
-        f.fp.y = f.startY + (f.endY - f.startY) * t;
-      }
-    }, easeOutBounce).promise;
-
-    for (const f of fallers) removeFloatingPiece(f.fp);
-    clearAllOverrides();
-  }
-
-  // Commit gravity and fill
-  applyGravity(grid);
-  {
-    const mode = getActiveGameMode();
-    const filled = fillEmpty(grid, undefined, undefined, undefined, mode.hasBombs && bombQueued);
-    if (mode.hasBombs && bombQueued && filled.length > 0) bombQueued = false;
-  }
-  requestRedraw();
-
-}
-
-/**
- * Compute how far each non-null cell needs to fall.
- * Returns [{ col, fromRow, toRow, dist, colorIndex }]
- */
-function computeFallDistances() {
-  const result = [];
-  for (let c = 0; c < GRID_COLS; c++) {
-    let writeRow = GRID_ROWS - 1;
-    for (let r = GRID_ROWS - 1; r >= 0; r--) {
-      if (grid[c][r] !== null) {
-        if (r !== writeRow) {
-          result.push({
-            col: c,
-            fromRow: r,
-            toRow: writeRow,
-            dist: writeRow - r,
-            colorIndex: grid[c][r].colorIndex,
-            special: grid[c][r].special,
-            bombTimer: grid[c][r].bombTimer,
-          });
-        }
-        writeRow--;
-      }
-    }
-  }
-  return result;
-}
-
-function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 // ─── Helpers ────────────────────────────────────────────────────
+
+/** Prepopulate all name inputs with the sticky player name. */
+function prepopulateNameInputs() {
+  const name = getPlayerName();
+  for (const id of ['go-name', 'gw-name', 'oa-name', 'es-name']) {
+    const el = document.getElementById(id);
+    if (el) el.value = name;
+  }
+}
+
+/** Read the name from an input, persist it, and attach it to the latest high score. */
+function saveNameFromInput(inputId) {
+  const el = document.getElementById(inputId);
+  const name = el ? el.value.trim().slice(0, 20) : '';
+  if (name) {
+    setPlayerName(name);
+    updateLatestHighScoreName(getCombinedModeId(), name);
+  }
+}
 
 function clustersMatch(a, b) {
   if (!a || !b || a.length !== b.length) return false;

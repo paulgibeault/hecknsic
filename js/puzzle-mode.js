@@ -294,11 +294,24 @@ function showPuzzleResult(stars) {
                   'Puzzle cleared! Try for par next time.';
 
   const statsEl = document.getElementById('puzzle-result-stats');
-  statsEl.innerHTML = `
-    <div class="score-row"><span>Moves used</span><span class="val">${movesUsed} / ${activePuzzle.moveLimit}</span></div>
-    <div class="score-row"><span>Par</span><span class="val">${activePuzzle.par}</span></div>
-    <div class="score-row"><span>Best chain</span><span class="val">${maxChain}</span></div>
-  `;
+  statsEl.innerHTML = ''; // Clear securely
+
+  const createRow = (label, valText) => {
+    const row = document.createElement('div');
+    row.className = 'score-row';
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = label;
+    const valSpan = document.createElement('span');
+    valSpan.className = 'val';
+    valSpan.textContent = valText;
+    row.appendChild(labelSpan);
+    row.appendChild(valSpan);
+    return row;
+  };
+
+  statsEl.appendChild(createRow('Moves used', `${movesUsed} / ${activePuzzle.moveLimit}`));
+  statsEl.appendChild(createRow('Par', activePuzzle.par));
+  statsEl.appendChild(createRow('Best chain', maxChain));
 
   const nextPuzzle = getNextPuzzle(activePuzzle.id);
   const nextBtn    = document.getElementById('btn-puzzle-next');

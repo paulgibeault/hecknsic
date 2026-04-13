@@ -2,9 +2,8 @@
  * input.js — Mouse, touch, and keyboard input → game actions.
  */
 
-import { GRID_COLS, GRID_ROWS } from './constants.js';
 import { pixelToHex, findClusterAtPixel } from './hex-math.js';
-import { getOrigin, getBoardScale, requestRedraw } from './renderer.js';
+import { getOrigin, getBoardScale, getActiveGridSize, requestRedraw } from './renderer.js';
 
 // ─── State ──────────────────────────────────────────────────────
 let mouseX = 0, mouseY = 0;
@@ -191,5 +190,6 @@ export function initInput(canvas) {
 
 function updateHover() {
   const { originX, originY } = getOrigin();
-  hoverCluster = findClusterAtPixel(mouseX, mouseY, originX, originY, GRID_COLS, GRID_ROWS);
+  const { cols, rows } = getActiveGridSize();
+  hoverCluster = findClusterAtPixel(mouseX, mouseY, originX, originY, cols, rows);
 }

@@ -8,12 +8,14 @@
 /* ─── Body ───────────────────────────────────────────────────── */
 html, body {
   width: 100%;
-  height: 100%;
+  height: 100vh;            /* fallback for iOS < 15.4 */
+  height: 100dvh;
   overflow: hidden;
-  background: radial-gradient(circle at 50% 0%, #1a1b35 0%, #111218 50%, #0a0b0e 100%);
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  /* Solid dark color fills iOS safe areas (notch top + home indicator bottom) */
+  background: #0a0b0e;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
   color: #D0D0D8;
-  touch-action: manipulation; /* disable double-tap zoom */
+  touch-action: manipulation;
 }
 
 /* ─── Canvas ─────────────────────────────────────────────────── */
@@ -33,7 +35,7 @@ html, body {
 /* ─── Controls ───────────────────────────────────────────────── */
 .controls {
   position: absolute;
-  bottom: 24px;
+  bottom: max(24px, env(safe-area-inset-bottom, 24px));
   right: 24px; /* default: right-handed */
   display: flex;
   flex-direction: row;
@@ -125,6 +127,24 @@ html, body {
 @media (pointer: fine) and (min-width: 1024px) {
   .controls, .hand-toggle {
     display: none !important;
+  }
+
+  /* --ui-scale is set by JS (renderer.js) on resize to match boardScale.
+     Use zoom (not transform) to avoid conflicts with existing transforms. */
+  .edgy-dropdown {
+    zoom: var(--ui-scale, 1);
+  }
+
+  .icon-btn {
+    zoom: 1;
+  }
+
+  #game-hud {
+    zoom: var(--ui-scale, 1);
+  }
+
+  .modal-content {
+    zoom: var(--ui-scale, 1);
   }
 }
 

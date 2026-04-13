@@ -1,15 +1,22 @@
 {
   "name": "Hecknsic",
   "short_name": "Hecknsic",
-  "start_url": "./index.html?v=1.1.0",
+  "description": "A hex-grid puzzle game with daily challenges and puzzle editor.",
+  "start_url": "./index.html?v=1.2.11",
   "display": "standalone",
-  "background_color": "#181A20",
-  "theme_color": "#181A20",
+  "background_color": "#0a0b0e",
+  "theme_color": "#1a1b35",
   "icons": [
     {
-      "src": "img/logo_header.png",
+      "src": "img/icon-192.png",
       "sizes": "192x192",
       "type": "image/png"
+    },
+    {
+      "src": "img/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }

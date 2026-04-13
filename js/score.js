@@ -7,12 +7,14 @@ import { SCORE_BASE, CHAIN_MULTIPLIER_BASE } from './constants.js';
 let score = 0;
 let chainLevel = 0;   // 0 = first match in a cascade, 1 = second, etc.
 let comboCount = 0;    // total matches in current cascade
+let maxCombo = 0;      // peak combo count across the entire game session
 let displayScore = 0;  // for smooth score counter animation
 
 export function getScore()       { return score; }
 export function getDisplayScore(){ return Math.round(displayScore); }
 export function getChainLevel()  { return chainLevel; }
 export function getComboCount()  { return comboCount; }
+export function getMaxCombo()    { return maxCombo; }
 export function isScoreAnimating(){ return Math.round(displayScore) < score; }
 
 
@@ -21,6 +23,7 @@ export function resetScore() {
   displayScore = 0;
   chainLevel = 0;
   comboCount = 0;
+  maxCombo = 0;
 }
 
 export function restoreScore(saved) {
@@ -28,6 +31,7 @@ export function restoreScore(saved) {
   displayScore = saved.displayScore ?? 0;
   chainLevel = saved.chainLevel ?? 0;
   comboCount = saved.comboCount ?? 0;
+  maxCombo = saved.maxCombo ?? 0;
 }
 
 /**
@@ -51,6 +55,7 @@ export function advanceChain() {
 
 /** Call when the cascade fully resolves (no more matches). */
 export function resetChain() {
+  if (comboCount > maxCombo) maxCombo = comboCount;
   chainLevel = 0;
   comboCount = 0;
 }
