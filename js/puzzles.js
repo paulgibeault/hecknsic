@@ -185,15 +185,16 @@ export function describeGoal(goal) {
 
 /**
  * Compute star rating 0–3.
- *   3 stars — solved at or under par WITH chain >= 2
- *   2 stars — solved at or under par, no chain bonus (chain < 2)
+ *   3 stars — solved under par
+ *   2 stars — solved at par
  *   1 star  — solved but over par
  *   0 stars — exceeded move limit (shouldn't happen, but guarded)
  */
-export function computeStars(puzzle, movesUsed, maxChain) {
+export function computeStars(puzzle, movesUsed, _maxChain) {
   if (movesUsed > puzzle.moveLimit) return 0; // shouldn't happen but guard it
   if (movesUsed > puzzle.par) return 1;
-  return maxChain >= 2 ? 3 : 2;
+  if (movesUsed === puzzle.par) return 2;
+  return 3;
 }
 
 // ─── Puzzle registry ────────────────────────────────────────────
