@@ -158,17 +158,17 @@ test('computeStars: 2 stars when solved at par, no chain', () => {
   assert.equal(computeStars(puzzle, 6, 0), 2);
 });
 
-test('computeStars: 2 stars when solved under par, no chain', () => {
+test('computeStars: 3 stars when solved under par', () => {
   const puzzle = { moveLimit: 10, par: 6 };
-  assert.equal(computeStars(puzzle, 4, 0), 2);
+  assert.equal(computeStars(puzzle, 4, 0), 3);
 });
 
-test('computeStars: 3 stars when solved at par with chain >= 2', () => {
+test('computeStars: 2 stars when solved at par (chain ignored)', () => {
   const puzzle = { moveLimit: 10, par: 6 };
-  assert.equal(computeStars(puzzle, 6, 2), 3);
+  assert.equal(computeStars(puzzle, 6, 2), 2);
 });
 
-test('computeStars: 3 stars when solved under par with chain >= 2', () => {
+test('computeStars: 3 stars when solved under par (chain irrelevant)', () => {
   const puzzle = { moveLimit: 10, par: 6 };
   assert.equal(computeStars(puzzle, 3, 3), 3);
 });

@@ -12,9 +12,9 @@
  *   clear_all    — clear every tile from the board
  *
  * Star ratings (per puzzle):
- *   ⭐  — solved it
- *   ⭐⭐ — solved within par moves
- *   ⭐⭐⭐ — solved within par AND achieved a 2+ chain combo
+ *   ⭐    — solved but over par
+ *   ⭐⭐  — solved at exactly par
+ *   ⭐⭐⭐ — solved under par (fewer moves than par)
  */
 
 import { PIECE_COLORS } from './constants.js';
@@ -185,16 +185,16 @@ export function describeGoal(goal) {
 
 /**
  * Compute star rating 0–3.
- *   1 star  — solved
- *   2 stars — solved within par moves
- *   3 stars — solved within par AND maxChain >= 2
+ *   3 stars — solved under par
+ *   2 stars — solved at par
+ *   1 star  — solved but over par
+ *   0 stars — exceeded move limit (shouldn't happen, but guarded)
  */
-export function computeStars(puzzle, movesUsed, maxChain) {
+export function computeStars(puzzle, movesUsed, _maxChain) {
   if (movesUsed > puzzle.moveLimit) return 0; // shouldn't happen but guard it
-  let stars = 1;
-  if (movesUsed <= puzzle.par) stars = 2;
-  if (movesUsed <= puzzle.par && maxChain >= 2) stars = 3;
-  return stars;
+  if (movesUsed > puzzle.par) return 1;
+  if (movesUsed === puzzle.par) return 2;
+  return 3;
 }
 
 // ─── Puzzle registry ────────────────────────────────────────────

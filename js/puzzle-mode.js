@@ -289,7 +289,7 @@ function showPuzzleResult(stars) {
     '⭐'.repeat(stars) + '☆'.repeat(3 - stars);
 
   document.getElementById('puzzle-result-msg').textContent =
-    stars === 3 ? 'Perfect — par-breaking solve with a chain combo!' :
+    stars === 3 ? 'Perfect — solved under par!' :
     stars === 2 ? 'Efficient solve — hit par!' :
                   'Puzzle cleared! Try for par next time.';
 
