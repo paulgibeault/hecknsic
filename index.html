@@ -1,6 +1,48 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <script>
+  // Sandboxed-iframe localStorage shim. When loaded inside the launcher's
+  // sandboxed iframe (no allow-same-origin), parent's localStorage is
+  // unreachable directly — proxy via postMessage to the launcher's
+  // gameStorageProxy IIFE. Standalone (window.parent === window): no-op.
+  (function () {
+    if (window.parent === window) return;
+    var cache = Object.create(null);
+    var pending = Object.create(null);
+    var nextId = 0;
+    function send(op, payload) {
+      var requestId = String(++nextId);
+      var p = new Promise(function (resolve) { pending[requestId] = resolve; });
+      window.parent.postMessage(
+        Object.assign({ type: 'ls-proxy-request', requestId: requestId, op: op }, payload || {}),
+        '*'
+      );
+      return p;
+    }
+    window.addEventListener('message', function (e) {
+      if (e.source !== window.parent) return;
+      var d = e.data;
+      if (!d || d.type !== 'ls-proxy-response') return;
+      var resolver = pending[d.requestId];
+      if (resolver) { delete pending[d.requestId]; resolver(d); }
+    });
+    var shim = {
+      getItem: function (k) { return Object.prototype.hasOwnProperty.call(cache, k) ? cache[k] : null; },
+      setItem: function (k, v) { var s = String(v); cache[k] = s; send('setItem', { key: k, value: s }); },
+      removeItem: function (k) { delete cache[k]; send('removeItem', { key: k }); },
+      clear: function () { cache = Object.create(null); send('clear'); },
+      key: function (i) { return Object.keys(cache)[i] || null; },
+      get length() { return Object.keys(cache).length; }
+    };
+    Object.defineProperty(window, 'localStorage', { value: shim, configurable: true });
+    window.__storageReady = send('dump').then(function (reply) {
+      if (reply && reply.ok && reply.data) {
+        Object.keys(reply.data).forEach(function (k) { cache[k] = reply.data[k]; });
+      }
+    });
+  })();
+  </script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
