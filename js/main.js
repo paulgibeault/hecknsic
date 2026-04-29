@@ -68,6 +68,12 @@ import {
   onPuzzleMove, onStarflowerCreated,
 } from './puzzle-mode.js';
 
+// In sandboxed-iframe context (launcher), wait for postMessage-backed
+// localStorage to hydrate before any save data is read.
+if (typeof window !== 'undefined' && window.__storageReady) {
+  await window.__storageReady;
+}
+
 
 // ─── Animation Context ───
 export const getAnimationContext = () => ({
