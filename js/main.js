@@ -127,6 +127,11 @@ initInput(canvas);
 if (typeof window !== 'undefined' && window.Arcade) {
   Arcade.onSuspend(() => { isPaused = true; });
   Arcade.onResume(() => { isPaused = false; lastTime = performance.now(); });
+
+  // After the launcher imports a save, every persisted key the game reads at
+  // boot has just changed. Re-bootstrap from a clean slate rather than trying
+  // to surgically swap grid + score + active mode + settings mid-frame.
+  Arcade.onStateReplaced(() => location.reload());
 }
 
 // ─── Puzzle mode setup ───────────────────────────────────────────
