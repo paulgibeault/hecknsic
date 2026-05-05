@@ -1,48 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <script>
-  // Sandboxed-iframe localStorage shim. When loaded inside the launcher's
-  // sandboxed iframe (no allow-same-origin), parent's localStorage is
-  // unreachable directly — proxy via postMessage to the launcher's
-  // gameStorageProxy IIFE. Standalone (window.parent === window): no-op.
-  (function () {
-    if (window.parent === window) return;
-    var cache = Object.create(null);
-    var pending = Object.create(null);
-    var nextId = 0;
-    function send(op, payload) {
-      var requestId = String(++nextId);
-      var p = new Promise(function (resolve) { pending[requestId] = resolve; });
-      window.parent.postMessage(
-        Object.assign({ type: 'ls-proxy-request', requestId: requestId, op: op }, payload || {}),
-        '*'
-      );
-      return p;
-    }
-    window.addEventListener('message', function (e) {
-      if (e.source !== window.parent) return;
-      var d = e.data;
-      if (!d || d.type !== 'ls-proxy-response') return;
-      var resolver = pending[d.requestId];
-      if (resolver) { delete pending[d.requestId]; resolver(d); }
-    });
-    var shim = {
-      getItem: function (k) { return Object.prototype.hasOwnProperty.call(cache, k) ? cache[k] : null; },
-      setItem: function (k, v) { var s = String(v); cache[k] = s; send('setItem', { key: k, value: s }); },
-      removeItem: function (k) { delete cache[k]; send('removeItem', { key: k }); },
-      clear: function () { cache = Object.create(null); send('clear'); },
-      key: function (i) { return Object.keys(cache)[i] || null; },
-      get length() { return Object.keys(cache).length; }
-    };
-    Object.defineProperty(window, 'localStorage', { value: shim, configurable: true });
-    window.__storageReady = send('dump').then(function (reply) {
-      if (reply && reply.ok && reply.data) {
-        Object.keys(reply.data).forEach(function (k) { cache[k] = reply.data[k]; });
-      }
-    });
-  })();
-  </script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -54,6 +12,66 @@
   <link rel="apple-touch-icon" href="img/icon-192.png">
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/overlays.css">
+  <script src="https://paulgibeault.github.io/arcade-sdk.js"></script>
+  <script>
+    Arcade.init({ gameId: 'hecknsic' });
+
+    // One-shot migration of pre-Arcade keys into the namespaced layout.
+    // Scores and player name are dropped on purpose — fresh leaderboard
+    // under the new SDK; player name re-typed on first save.
+    Arcade.state.migrate('v1', function () {
+      function take(key) {
+        var raw;
+        try { raw = localStorage.getItem(key); } catch (e) { return null; }
+        if (raw === null) return null;
+        try { localStorage.removeItem(key); } catch (e) {}
+        return raw;
+      }
+      function takeJSON(key) {
+        var raw = take(key);
+        if (raw === null) return null;
+        try { return JSON.parse(raw); } catch (e) { return null; }
+      }
+
+      var settings = takeJSON('hecknsic_settings');
+      if (settings) Arcade.state.set('settings', settings);
+
+      var gm = take('hecknsic_active_game_mode');
+      if (gm) Arcade.state.set('activeGameMode', gm);
+      var mm = take('hecknsic_active_match_mode');
+      if (mm) Arcade.state.set('activeMatchMode', mm);
+
+      take('hecknsic_player_name'); // dropped, not migrated
+
+      // Seed launcher-shared handedness only if no value is set yet — never
+      // clobber a preference the user already established in another game.
+      var lh = take('hecknsic_left_handed');
+      if (lh !== null && Arcade.global.get('handedness') === null) {
+        Arcade.global.set('handedness', lh === '1' ? 'left' : 'right');
+      }
+
+      var keys = [];
+      try {
+        for (var i = 0; i < localStorage.length; i++) {
+          var k = localStorage.key(i);
+          if (k) keys.push(k);
+        }
+      } catch (e) {}
+      keys.forEach(function (k) {
+        if (k.indexOf('hecknsic_state_') === 0) {
+          var modeId = k.substring('hecknsic_state_'.length);
+          var v = takeJSON(k);
+          if (v) Arcade.state.set('gameState.' + modeId, v);
+        } else if (k.indexOf('hecknsic_puzzle_') === 0) {
+          var pid = k.substring('hecknsic_puzzle_'.length);
+          var v2 = takeJSON(k);
+          if (v2) Arcade.state.set('puzzle.' + pid, v2);
+        } else if (k.indexOf('hecknsic_highscores_') === 0) {
+          take(k); // dropped, not migrated
+        }
+      });
+    });
+  </script>
 </head>
 <body>
   <canvas id="game"></canvas>

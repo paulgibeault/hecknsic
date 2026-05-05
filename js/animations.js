@@ -454,7 +454,7 @@ export async function handleOverAchiever(ctx) {
   ctx.setState('gameover');
   const combinedId = ctx.getCombinedModeId();
   ctx.clearGameState(combinedId);
-  ctx.addHighScore(combinedId, getScore(), 'over-achiever', getMaxCombo());
+  // Score is committed when the user confirms their name in modal-over-achiever.
 
   document.getElementById('go-oa-score').textContent = getScore().toLocaleString();
   document.getElementById('go-oa-combo').textContent = `x${getMaxCombo()}`;
@@ -511,8 +511,8 @@ export async function handleGameOver(ctx, isSessionEnd = false) {
   ctx.setState('gameover');
   const combinedId = ctx.getCombinedModeId();
   ctx.clearGameState(combinedId);
-  ctx.addHighScore(combinedId, getScore(), undefined, getMaxCombo());
-  console.log('Game/Session Over. High score saved.');
+  // Score is committed when the user confirms their name in modal-gameover
+  // (or already committed by btn-confirm-end before this runs, for chill).
 
   // 1. Show Game Over Modal (only if not a peaceful chill session end)
   const gameOverMsgEl = document.querySelector('.gameover-message');

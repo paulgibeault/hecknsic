@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+#
+# ago — "arcade-go". Stages hecknsic alongside the launcher into a single
+# same-origin tree, and serves it with python3.
+#
+#   ./ago        — stage, serve, open browser
+#   ./ago stop   — kill the running server and exit
+#
+# Why same-origin matters: the arcade SDK uses postMessage with strict origin
+# checks, and the launcher mounts iframes with allow-same-origin so they can
+# read the shared localStorage directly. To reproduce that locally we serve
+# everything from one HTTP origin.
+#
+# Layout produced under .arcade-stage/ :
+#   index.html         (launcher, URLs rewritten)
+#   arcade-sdk.js      (rewritten)
+#   styles.css, profile.html, manifest.json, images/ (from launcher repo)
+#   hecknsic/          (this repo's static files, SDK URL rewritten)
+#
+# Service workers (both launcher's and hecknsic's) are intentionally defanged —
+# they cache fixed asset lists and would mask edits during dev. Hard-refresh
+# works as expected.
+
+set -euo pipefail
+
+GAME_DIR="$(cd "$(dirname "$0")" && pwd)"
+LAUNCHER_DIR="${ARCADE_LAUNCHER_DIR:-$GAME_DIR/../paulgibeault.github.io}"
+STAGE_DIR="$GAME_DIR/.arcade-stage"
+PORT="${ARCADE_PORT:-4791}"
+PID_FILE="$STAGE_DIR/.server.pid"
+LOG_FILE="$STAGE_DIR/.server.log"
+
+# ─── helpers ──────────────────────────────────────────────────────────
+stop_server() {
+  if [ -f "$PID_FILE" ]; then
+    local p
+    p=$(cat "$PID_FILE" 2>/dev/null || true)
+    if [ -n "$p" ] && kill -0 "$p" 2>/dev/null; then
+      kill "$p" 2>/dev/null || true
+      for _ in 1 2 3 4 5; do
+        kill -0 "$p" 2>/dev/null || break
+        sleep 0.2
+      done
+      kill -0 "$p" 2>/dev/null && kill -9 "$p" 2>/dev/null || true
+    fi
+    rm -f "$PID_FILE"
+  fi
+}
+
+# In-place sed wrapper that works on both macOS BSD and GNU sed.
+sed_inplace() {
+  local pattern="$1" file="$2" tmp
+  tmp=$(mktemp)
+  sed "$pattern" "$file" > "$tmp"
+  mv "$tmp" "$file"
+}
+
+# Free $PORT if a stray python http.server is holding it (e.g. orphaned `ago`
+# from a sibling repo whose PID file we can't see).
+free_port() {
+  command -v lsof >/dev/null 2>&1 || return 0
+  local pids
+  pids=$(lsof -nP -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)
+  [ -z "$pids" ] && return 0
+  for p in $pids; do
+    # Only reap python — never clobber an unrelated service on the same port.
+    case "$(ps -o comm= -p "$p" 2>/dev/null)" in
+      *python*)
+        kill "$p" 2>/dev/null || true
+        for _ in 1 2 3 4 5; do
+          kill -0 "$p" 2>/dev/null || break
+          sleep 0.2
+        done
+        kill -0 "$p" 2>/dev/null && kill -9 "$p" 2>/dev/null || true
+        ;;
+      *)
+        echo "ago: port $PORT held by non-python pid $p; refusing to kill" >&2
+        return 1
+        ;;
+    esac
+  done
+}
+
+# ─── stop subcommand ───────────────────────────────────────────────────
+if [ "${1:-up}" = "stop" ]; then
+  if [ -d "$STAGE_DIR" ]; then
+    stop_server
+    echo "Server stopped."
+  else
+    echo "No stage directory; nothing to stop."
+  fi
+  exit 0
+fi
+
+# ─── preflight ─────────────────────────────────────────────────────────
+if [ ! -d "$LAUNCHER_DIR" ]; then
+  echo "ago: launcher repo not found at $LAUNCHER_DIR" >&2
+  echo "     Set ARCADE_LAUNCHER_DIR to override." >&2
+  exit 1
+fi
+if [ ! -f "$LAUNCHER_DIR/index.html" ] || [ ! -f "$LAUNCHER_DIR/arcade-sdk.js" ]; then
+  echo "ago: launcher dir is missing index.html or arcade-sdk.js" >&2
+  exit 1
+fi
+command -v python3 >/dev/null 2>&1 || { echo "ago: python3 required"; exit 1; }
+
+LOCAL_ORIGIN="http://127.0.0.1:$PORT"
+
+# ─── stop any prior run ────────────────────────────────────────────────
+stop_server
+free_port
+
+# ─── (re)create stage ──────────────────────────────────────────────────
+echo "→ Staging at $STAGE_DIR"
+rm -rf "$STAGE_DIR"
+mkdir -p "$STAGE_DIR"
+
+# Launcher files: copy with absolute → local-origin rewrite.
+# Skip sw.js — SW caching hides edits during dev.
+for f in index.html profile.html manifest.json arcade-sdk.js styles.css; do
+  src="$LAUNCHER_DIR/$f"
+  if [ -f "$src" ]; then
+    sed "s|https://paulgibeault.github.io|$LOCAL_ORIGIN|g" "$src" > "$STAGE_DIR/$f"
+  fi
+done
+
+# Defang the launcher's service-worker registration so dev pages stay fresh.
+if [ -f "$STAGE_DIR/index.html" ]; then
+  sed_inplace "s|navigator\.serviceWorker\.register|/* SW disabled in ago */ false \&\& navigator.serviceWorker.register|g" "$STAGE_DIR/index.html"
+fi
+
+# Images: symlink (large, no rewrite needed)
+ln -snf "$LAUNCHER_DIR/images" "$STAGE_DIR/images"
+
+# Game (this repo) → /hecknsic/. Static site — no build step.
+# Copy only the assets the page actually serves; skip dev/test/tooling clutter.
+mkdir -p "$STAGE_DIR/hecknsic"
+cp "$GAME_DIR/index.html" "$STAGE_DIR/hecknsic/index.html"
+[ -f "$GAME_DIR/manifest.json" ] && cp "$GAME_DIR/manifest.json" "$STAGE_DIR/hecknsic/manifest.json"
+[ -f "$GAME_DIR/sw.js" ] && cp "$GAME_DIR/sw.js" "$STAGE_DIR/hecknsic/sw.js"
+for d in css js img; do
+  [ -d "$GAME_DIR/$d" ] && cp -R "$GAME_DIR/$d" "$STAGE_DIR/hecknsic/$d"
+done
+
+# Rewrite SDK URL inside the staged game.
+sed_inplace "s|https://paulgibeault.github.io|$LOCAL_ORIGIN|g" "$STAGE_DIR/hecknsic/index.html"
+
+# Defang the game's own service-worker registration too.
+sed_inplace "s|navigator\.serviceWorker\.register|/* SW disabled in ago */ false \&\& navigator.serviceWorker.register|g" "$STAGE_DIR/hecknsic/index.html"
+
+# ─── start server ──────────────────────────────────────────────────────
+python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$STAGE_DIR" > "$LOG_FILE" 2>&1 &
+NEW_PID=$!
+echo "$NEW_PID" > "$PID_FILE"
+
+sleep 0.4
+if ! kill -0 "$NEW_PID" 2>/dev/null; then
+  echo "ago: server failed to start. See $LOG_FILE" >&2
+  exit 1
+fi
+
+cat <<EOF
+
+  Arcade staged at $STAGE_DIR
+
+    Launcher:  $LOCAL_ORIGIN/
+    Game:      $LOCAL_ORIGIN/hecknsic/    (standalone)
+    SDK:       $LOCAL_ORIGIN/arcade-sdk.js
+
+    Server PID: $NEW_PID
+    Log:        $LOG_FILE
+    Stop:       $0 stop
+
+  Re-run ./ago after editing source — it restages atomically.
+
+EOF
+
+if command -v open >/dev/null 2>&1; then
+  open "$LOCAL_ORIGIN/" >/dev/null 2>&1 || true
+fi
