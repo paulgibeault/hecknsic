@@ -1,11 +1,12 @@
 /**
- * storage.js — LocalStorage wrapper for persistence.
+ * storage.js — Persistence wrapper over Arcade.state.* (per-game),
+ * Arcade.scores.* (leaderboards), and Arcade.player.* (sticky name).
  *
- * Key scheme:
- *   hecknsic_activemode          – global, last used mode id
- *   hecknsic_state_{modeId}      – per-mode game state
- *   hecknsic_highscores_{modeId} – per-mode high scores
- *   hecknsic_settings            – global, unchanged
+ * Namespaced keys (under arcade.v1.hecknsic.*):
+ *   gameState.<combinedId>       – per-mode game state
+ *   settings                     – key bindings, theme, etc.
+ *   puzzle.<puzzleId>            – per-puzzle progress
+ *   scores.<modeId>              – per-mode leaderboard (managed by SDK)
  */
 
 const DEFAULT_SETTINGS = {
@@ -19,107 +20,51 @@ const DEFAULT_SETTINGS = {
 
 // ─── Game state (per-mode) ───────────────────────────────────────
 
-/**
- * Save the current game state for the given mode.
- * @param {string} modeId
- * @param {Object} state
- */
 export function saveGameState(modeId, state) {
-  try {
-    localStorage.setItem(`hecknsic_state_${modeId}`, JSON.stringify(state));
-  } catch (e) {
-    console.error('Failed to save game state:', e);
-  }
+  Arcade.state.set(`gameState.${modeId}`, state);
 }
 
-/**
- * Load the saved game state for the given mode.
- * @param {string} modeId
- * @returns {Object|null}
- */
 export function loadGameState(modeId) {
-  try {
-    const raw = localStorage.getItem(`hecknsic_state_${modeId}`);
-    if (!raw) return null;
-    const state = JSON.parse(raw);
+  const state = Arcade.state.get(`gameState.${modeId}`);
+  if (!state) return null;
 
-    // Patch: fix bombs that have an invalid colorIndex (e.g. negative from a
-    // displaced special piece).  Assign them a random valid color so they can
-    // be matched.
-    if (state && state.grid) {
-      for (const col of state.grid) {
-        if (!col) continue;
-        for (const cell of col) {
-          if (cell && cell.special === 'bomb' && (cell.colorIndex < 0 || cell.colorIndex >= 5)) {
-            cell.colorIndex = Math.floor(Math.random() * 5);
-          }
+  // Patch: fix bombs that have an invalid colorIndex (e.g. negative from a
+  // displaced special piece). Assign them a random valid color so they can
+  // be matched. Persisted on the next saveGame().
+  if (state.grid) {
+    for (const col of state.grid) {
+      if (!col) continue;
+      for (const cell of col) {
+        if (cell && cell.special === 'bomb' && (cell.colorIndex < 0 || cell.colorIndex >= 5)) {
+          cell.colorIndex = Math.floor(Math.random() * 5);
         }
       }
     }
-
-    return state;
-  } catch (e) {
-    console.error('Failed to load game state:', e);
-    return null;
   }
+
+  return state;
 }
 
-/**
- * Clear the saved game state for the given mode (e.g. on game over).
- * @param {string} modeId
- */
 export function clearGameState(modeId) {
-  localStorage.removeItem(`hecknsic_state_${modeId}`);
+  Arcade.state.remove(`gameState.${modeId}`);
 }
 
-// ─── Settings (global) ──────────────────────────────────────────
+// ─── Settings (per-game) ────────────────────────────────────────
 
-/**
- * Save settings.
- * @param {Object} settings
- */
 export function saveSettings(settings) {
-  try {
-    localStorage.setItem('hecknsic_settings', JSON.stringify(settings));
-  } catch (e) {
-    console.error('Failed to save settings:', e);
-  }
+  Arcade.state.set('settings', settings);
 }
 
-/**
- * Load settings, merging with defaults.
- */
 export function loadSettings() {
-  try {
-    const raw = localStorage.getItem('hecknsic_settings');
-    const userSettings = raw ? JSON.parse(raw) : {};
-    return { ...DEFAULT_SETTINGS, ...userSettings };
-  } catch (e) {
-    console.error('Failed to load settings:', e);
-    return DEFAULT_SETTINGS;
-  }
+  return Arcade.state.getOrInit('settings', DEFAULT_SETTINGS);
 }
 
 // ─── Puzzle progress ────────────────────────────────────────────
 
-/**
- * Get puzzle completion record for a given puzzle id.
- * @returns {{ stars: number, bestMoves: number|null, solved: bool } | null}
- */
 export function getPuzzleProgress(puzzleId) {
-  try {
-    const raw = localStorage.getItem(`hecknsic_puzzle_${puzzleId}`);
-    return raw ? JSON.parse(raw) : null;
-  } catch (e) {
-    return null;
-  }
+  return Arcade.state.get(`puzzle.${puzzleId}`);
 }
 
-/**
- * Save puzzle completion. Keeps best stars and best move count.
- * @param {string} puzzleId
- * @param {{ stars: number, movesUsed: number }} result
- */
 export function savePuzzleProgress(puzzleId, result) {
   const existing = getPuzzleProgress(puzzleId) ?? { stars: 0, bestMoves: null, bestScore: 0, solved: false };
   const updated = {
@@ -131,11 +76,7 @@ export function savePuzzleProgress(puzzleId, result) {
     solved:    existing.solved || (result.stars != null && result.stars > 0),
     lastPlayedAt: Date.now(),
   };
-  try {
-    localStorage.setItem(`hecknsic_puzzle_${puzzleId}`, JSON.stringify(updated));
-  } catch (e) {
-    console.error('Failed to save puzzle progress:', e);
-  }
+  Arcade.state.set(`puzzle.${puzzleId}`, updated);
 }
 
 /**
@@ -151,74 +92,35 @@ export function isSectorUnlocked(sectorId, sectors) {
   return prev.puzzles.every(p => getPuzzleProgress(p.id)?.solved);
 }
 
-// ─── High scores (per-mode) ─────────────────────────────────────
+// ─── High scores (per game mode) ────────────────────────────────
 
 /**
- * Add a new score to the high score list for the given mode.
- * @param {string} modeId
- * @param {number} score
- * @param {string} [achievement] - optional achievement id (e.g. 'over-achiever')
- * @param {number} [maxCombo] - peak combo count for this session
- * @param {string} [name] - player name for leaderboard
+ * Add a score for the given game mode. The SDK auto-stamps the player name
+ * from Arcade.player.name() and a timestamp. Achievement and combo are
+ * tucked into meta so the entry shape stays stable.
  */
-export function addHighScore(modeId, score, achievement, maxCombo, name) {
-  const scores = getHighScores(modeId);
-  const entry = { score, date: Date.now() };
-  if (achievement) entry.achievement = achievement;
-  if (maxCombo != null) entry.maxCombo = maxCombo;
-  if (name) entry.name = name;
-  scores.push(entry);
-  scores.sort((a, b) => b.score - a.score);
-  const top10 = scores.slice(0, 10);
-  try {
-    localStorage.setItem(`hecknsic_highscores_${modeId}`, JSON.stringify(top10));
-  } catch (e) {
-    console.error('Failed to save high scores:', e);
-  }
+export function addHighScore(modeId, score, achievement, maxCombo) {
+  const meta = {};
+  if (achievement) meta.achievement = achievement;
+  if (maxCombo != null) meta.maxCombo = maxCombo;
+  const entry = { score };
+  if (Object.keys(meta).length > 0) entry.meta = meta;
+  Arcade.scores.add(modeId, entry);
 }
 
 /**
- * Update the name on the most recent high score entry for this mode.
- * @param {string} modeId
- * @param {string} name
- */
-export function updateLatestHighScoreName(modeId, name) {
-  const scores = getHighScores(modeId);
-  if (scores.length === 0) return;
-  // Find the entry with the most recent date
-  let latest = scores[0];
-  for (const s of scores) {
-    if (s.date > latest.date) latest = s;
-  }
-  latest.name = name;
-  try {
-    localStorage.setItem(`hecknsic_highscores_${modeId}`, JSON.stringify(scores));
-  } catch (e) {
-    console.error('Failed to update high score name:', e);
-  }
-}
-
-/**
- * Get / set the sticky player name.
- */
-export function getPlayerName() {
-  return localStorage.getItem('hecknsic_player_name') || '';
-}
-export function setPlayerName(name) {
-  localStorage.setItem('hecknsic_player_name', name);
-}
-
-/**
- * Get the list of high scores for the given mode.
- * @param {string} modeId
- * @returns {Array<{score, date}>}
+ * Top 10 scores for the given mode, descending. Entry shape:
+ *   { score, ts, name?, meta?: { achievement?, maxCombo? } }
  */
 export function getHighScores(modeId) {
-  try {
-    const raw = localStorage.getItem(`hecknsic_highscores_${modeId}`);
-    return raw ? JSON.parse(raw) : [];
-  } catch (e) {
-    console.error('Failed to load high scores:', e);
-    return [];
-  }
+  return Arcade.scores.list(modeId, { limit: 10 });
+}
+
+// ─── Player name (cross-game, lives at arcade.v1.global.playerName) ──
+
+export function getPlayerName() {
+  return Arcade.player.name();
+}
+export function setPlayerName(name) {
+  Arcade.player.setName(name);
 }

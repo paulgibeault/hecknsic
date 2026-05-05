@@ -19,8 +19,8 @@ let activeGameModeId = 'arcade';
 let activeMatchModeId = 'classic';
 
 export function loadActiveMode() {
-  const savedGame = localStorage.getItem('hecknsic_active_game_mode');
-  const savedMatch = localStorage.getItem('hecknsic_active_match_mode');
+  const savedGame = Arcade.state.get('activeGameMode');
+  const savedMatch = Arcade.state.get('activeMatchMode');
   if (savedGame && GAME_MODES[savedGame]) activeGameModeId = savedGame;
   if (savedMatch && MATCH_MODES[savedMatch]) activeMatchModeId = savedMatch;
 }
@@ -37,10 +37,10 @@ export function getAllMatchModes()     { return Object.values(MATCH_MODES); }
 
 export function setActiveGameMode(id) {
   activeGameModeId = id;
-  localStorage.setItem('hecknsic_active_game_mode', id);
+  Arcade.state.set('activeGameMode', id);
 }
 
 export function setActiveMatchMode(id) {
   activeMatchModeId = id;
-  localStorage.setItem('hecknsic_active_match_mode', id);
+  Arcade.state.set('activeMatchMode', id);
 }

@@ -5,6 +5,18 @@
   box-sizing: border-box;
 }
 
+/* ─── Reduced motion ─────────────────────────────────────────── */
+/* Toggled by JS based on Arcade.settings.reducedMotion(). Short-circuits
+   CSS-driven animation/transition. Canvas-side tweens are unaffected. */
+body.reduced-motion *,
+body.reduced-motion *::before,
+body.reduced-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
 /* ─── Body ───────────────────────────────────────────────────── */
 html, body {
   width: 100%;

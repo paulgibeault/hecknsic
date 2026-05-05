@@ -58,7 +58,7 @@ import {
 } from './specials.js';
 import {
   saveGameState, loadGameState, clearGameState,
-  addHighScore, getHighScores, updateLatestHighScoreName,
+  addHighScore, getHighScores,
   getPlayerName, setPlayerName,
   loadSettings, saveSettings
 } from './storage.js';
@@ -67,12 +67,6 @@ import {
   clearActivePuzzle, getActivePuzzle, getPuzzleMovesLeft,
   onPuzzleMove, onStarflowerCreated,
 } from './puzzle-mode.js';
-
-// In sandboxed-iframe context (launcher), wait for postMessage-backed
-// localStorage to hydrate before any save data is read.
-if (typeof window !== 'undefined' && window.__storageReady) {
-  await window.__storageReady;
-}
 
 
 // ─── Animation Context ───
@@ -94,7 +88,6 @@ export const getAnimationContext = () => ({
   handleGameWin: () => handleGameWin(),
   getCombinedModeId,
   clearGameState,
-  addHighScore,
 });
 // ─── Game state ─────────────────────────────────────────────────
 let grid;
@@ -127,6 +120,14 @@ window.debug = {
 const canvas = document.getElementById('game');
 initRenderer(canvas);
 initInput(canvas);
+
+// Pause the game loop while the launcher hides the iframe — the existing
+// isPaused flag already short-circuits gameLoop. Reset lastTime on resume so
+// dt doesn't jump after a long suspension.
+if (typeof window !== 'undefined' && window.Arcade) {
+  Arcade.onSuspend(() => { isPaused = true; });
+  Arcade.onResume(() => { isPaused = false; lastTime = performance.now(); });
+}
 
 // ─── Puzzle mode setup ───────────────────────────────────────────
 initPuzzleModeUI(() => grid, isProcessing);
@@ -169,22 +170,42 @@ document.getElementById('btn-cw').addEventListener('click', (e) => {
   triggerAction('rotateCCW');
 });
 
-// Handedness toggle — keeps buttons in the comfortable corner for each player
+// Handedness — keeps buttons in the comfortable corner for each player.
+// Single source of truth is arcade.v1.global.handedness; the in-game pill
+// writes to it (standalone), and the launcher's settings UI writes to it
+// (framed). Either way the SDK fires onSettingsChange and we re-apply.
 const toggleLeft  = document.getElementById('hand-toggle-left');
 const toggleRight = document.getElementById('hand-toggle-right');
 
-function applyHandedness(leftHanded) {
+function applyHandedness(handedness) {
+  const leftHanded = handedness === 'left';
   controlsEl.classList.toggle('left-handed', leftHanded);
-  toggleLeft.classList.toggle('hidden', leftHanded);   // left pill: shown when NOT left-handed
-  toggleRight.classList.toggle('hidden', !leftHanded); // right pill: shown when left-handed
-  localStorage.setItem('hecknsic_left_handed', leftHanded ? '1' : '0');
+  toggleLeft.classList.toggle('hidden', leftHanded);
+  toggleRight.classList.toggle('hidden', !leftHanded);
 }
 
-// Restore saved preference
-applyHandedness(localStorage.getItem('hecknsic_left_handed') === '1');
+// Hide the in-game pills when framed — the launcher provides handedness UI.
+// Arcade.context.framed only flips true after the welcome handshake.
+Arcade.ready.then(() => {
+  if (Arcade.context.framed) {
+    toggleLeft.style.display = 'none';
+    toggleRight.style.display = 'none';
+  }
+});
 
-toggleLeft.addEventListener('click', (e) => { e.stopPropagation(); applyHandedness(true); });
-toggleRight.addEventListener('click', (e) => { e.stopPropagation(); applyHandedness(false); });
+applyHandedness(Arcade.settings.handedness());
+Arcade.onSettingsChange(() => applyHandedness(Arcade.settings.handedness()));
+
+toggleLeft.addEventListener('click',  (e) => { e.stopPropagation(); Arcade.global.set('handedness', 'left'); });
+toggleRight.addEventListener('click', (e) => { e.stopPropagation(); Arcade.global.set('handedness', 'right'); });
+
+// Reduced motion — short-circuit CSS animations/transitions globally. Canvas
+// tweens are not affected here; respecting them is a separate follow-up.
+function applyReducedMotion() {
+  document.body.classList.toggle('reduced-motion', Arcade.settings.reducedMotion());
+}
+applyReducedMotion();
+Arcade.onSettingsChange(applyReducedMotion);
 
 
 // Help Modal bindings
@@ -232,7 +253,7 @@ function guardedAction(btn, action) {
 // Game Over Modal bindings
 document.getElementById('btn-newgame').addEventListener('click', (e) => {
   e.stopPropagation();
-  saveNameFromInput('go-name');
+  commitScoreFromInput('go-name');
   guardedAction(e.currentTarget, resetGame);
 });
 
@@ -337,10 +358,11 @@ document.getElementById('btn-cancel-end').addEventListener('click', (e) => {
   // allow board interactions again
 });
 
-// Game Win Modal bindings
+// Game Win Modal bindings — game-win does not record a leaderboard score,
+// just save the sticky player name.
 document.getElementById('btn-continue-gamewin').addEventListener('click', (e) => {
   e.stopPropagation();
-  saveNameFromInput('gw-name');
+  setNameFromInput('gw-name');
   document.getElementById('modal-gamewin').classList.add('hidden');
   state = 'idle';
   isPaused = false;
@@ -349,14 +371,14 @@ document.getElementById('btn-continue-gamewin').addEventListener('click', (e) =>
 
 document.getElementById('btn-newgame-gamewin').addEventListener('click', (e) => {
   e.stopPropagation();
-  saveNameFromInput('gw-name');
+  setNameFromInput('gw-name');
   guardedAction(e.currentTarget, resetGame);
 });
 
 // Over-Achiever Modal binding
 document.getElementById('btn-newgame-oa').addEventListener('click', (e) => {
   e.stopPropagation();
-  saveNameFromInput('oa-name');
+  commitScoreFromInput('oa-name', 'over-achiever');
   guardedAction(e.currentTarget, () => {
     document.getElementById('modal-over-achiever').classList.add('hidden');
     resetGame();
@@ -365,7 +387,8 @@ document.getElementById('btn-newgame-oa').addEventListener('click', (e) => {
 
 document.getElementById('btn-confirm-end').addEventListener('click', (e) => {
   e.stopPropagation();
-  saveNameFromInput('es-name');
+  // Commit the chill-session score before the explosion sequence resets state.
+  commitScoreFromInput('es-name');
   endSessionModal.classList.add('hidden');
   isPaused = false; // Must unpause so the tween game-loop can tick!
   requestRedraw();
@@ -376,11 +399,10 @@ document.getElementById('btn-confirm-end').addEventListener('click', (e) => {
 
 function showHighScores() {
   const list = document.getElementById('high-scores-list');
-  const combinedId = getCombinedModeId();
-  const scores = getHighScores(combinedId);
+  const scores = getHighScores(getActiveGameModeId());
   const modeLabelEl = document.getElementById('hs-mode-label');
   if (modeLabelEl) {
-    modeLabelEl.textContent = `${getActiveGameMode().label}`; // match mode label removed
+    modeLabelEl.textContent = `${getActiveGameMode().label}`;
   }
   
   list.innerHTML = '';
@@ -401,10 +423,12 @@ function showHighScores() {
   const topScore = scores[0].score;
 
   scores.forEach((s, i) => {
-    const date = new Date(s.date).toLocaleDateString();
+    const achievement = s.meta?.achievement;
+    const maxCombo = s.meta?.maxCombo;
+    const date = new Date(s.ts).toLocaleDateString();
 
     const li = document.createElement('li');
-    if (s.achievement) li.classList.add('hs-achievement');
+    if (achievement) li.classList.add('hs-achievement');
     if (i === 0) li.classList.add('hs-top');
 
     const rankSpan = document.createElement('span');
@@ -420,14 +444,14 @@ function showHighScores() {
     const scoreSpan = document.createElement('span');
     scoreSpan.className = 'score';
     scoreSpan.textContent = s.score.toLocaleString();
-    if (s.achievement) {
+    if (achievement) {
       scoreSpan.textContent += ' 🏆';
     }
     li.appendChild(scoreSpan);
 
     const comboSpan = document.createElement('span');
     comboSpan.className = 'combo';
-    comboSpan.textContent = s.maxCombo ? `x${s.maxCombo}` : '-';
+    comboSpan.textContent = maxCombo ? `x${maxCombo}` : '-';
     li.appendChild(comboSpan);
 
     const dateSpan = document.createElement('span');
@@ -1043,14 +1067,18 @@ function prepopulateNameInputs() {
   }
 }
 
-/** Read the name from an input, persist it, and attach it to the latest high score. */
-function saveNameFromInput(inputId) {
+/** Read the name from an input and persist it as the sticky player name. */
+function setNameFromInput(inputId) {
   const el = document.getElementById(inputId);
   const name = el ? el.value.trim().slice(0, 20) : '';
-  if (name) {
-    setPlayerName(name);
-    updateLatestHighScoreName(getCombinedModeId(), name);
-  }
+  if (name) setPlayerName(name);
+}
+
+/** Save the player's name (if any) and add the current score to the leaderboard
+ *  for the active game mode. Call once per game-over flow before resetGame. */
+function commitScoreFromInput(inputId, achievement) {
+  setNameFromInput(inputId);
+  addHighScore(getActiveGameModeId(), getScore(), achievement, getMaxCombo());
 }
 
 function clustersMatch(a, b) {
