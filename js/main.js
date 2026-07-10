@@ -27,7 +27,7 @@ import {
   spawnColorNukeParticles, spawnExplosionParticles,
   spawnRingShockwave, flashScreenOverlay,
   requestRedraw, clearDirty, getIsDirty, hasActiveRendererAnimations,
-  setActiveGridSize,
+  setActiveGridSize, setFontScale,
 } from './renderer.js';
 import {
   loadActiveMode, getActiveGameMode, getActiveMatchMode,
@@ -99,6 +99,7 @@ let selectedCluster = null;
 let flowerCenter = null;     // {col,row} if a starflower ring is selected
 let pearlCenter = null;      // {col,row} if a black pearl Y-shape is selected
 let lastTime = 0;
+let rafId = null;
 let moveCount = 0;           // total player moves (for bomb spawn timing)
 let bombQueued = false;
 let boardGeneration = 0;  // incremented on grid replacement; stale async chains bail out
@@ -125,8 +126,15 @@ initInput(canvas);
 // isPaused flag already short-circuits gameLoop. Reset lastTime on resume so
 // dt doesn't jump after a long suspension.
 if (typeof window !== 'undefined' && window.Arcade) {
-  Arcade.onSuspend(() => { isPaused = true; });
-  Arcade.onResume(() => { isPaused = false; lastTime = performance.now(); });
+  Arcade.onSuspend(() => {
+    isPaused = true;
+    if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
+  });
+  Arcade.onResume(() => {
+    isPaused = false;
+    lastTime = performance.now();
+    rafId = requestAnimationFrame(gameLoop);
+  });
 
   // After the launcher imports a save, every persisted key the game reads at
   // boot has just changed. Re-bootstrap from a clean slate rather than trying
@@ -205,12 +213,21 @@ toggleLeft.addEventListener('click',  (e) => { e.stopPropagation(); Arcade.globa
 toggleRight.addEventListener('click', (e) => { e.stopPropagation(); Arcade.global.set('handedness', 'right'); });
 
 // Reduced motion — short-circuit CSS animations/transitions globally. Canvas
-// tweens are not affected here; respecting them is a separate follow-up.
+// tweens read Arcade.settings.reducedMotion() themselves (js/tween.js).
 function applyReducedMotion() {
   document.body.classList.toggle('reduced-motion', Arcade.settings.reducedMotion());
 }
 applyReducedMotion();
 Arcade.onSettingsChange(applyReducedMotion);
+
+// Canvas text (score popups, bomb timers, combo labels) doesn't scale with the
+// CSS --font-scale variable — cache it here and redraw on change.
+function applyFontScale() {
+  setFontScale(Arcade.settings.fontScale());
+  requestRedraw();
+}
+applyFontScale();
+Arcade.onSettingsChange(applyFontScale);
 
 
 // Help Modal bindings
@@ -577,13 +594,13 @@ if (savedState) {
   state = 'idle';
 }
 
-requestAnimationFrame(gameLoop);
+rafId = requestAnimationFrame(gameLoop);
 
 // ─── Game loop ──────────────────────────────────────────────────
 
 function gameLoop(timestamp) {
   if (isPaused) {
-    requestAnimationFrame(gameLoop);
+    rafId = requestAnimationFrame(gameLoop);
     return;
   }
 
@@ -603,7 +620,7 @@ function gameLoop(timestamp) {
     // drawGameOver(); // Handled by DOM overlay now
     
     updateGameHUD();
-    requestAnimationFrame(gameLoop);
+    rafId = requestAnimationFrame(gameLoop);
     return;
   }
 
@@ -649,7 +666,7 @@ function gameLoop(timestamp) {
   updateControlsVisibility();
   updateGameHUD();
 
-  requestAnimationFrame(gameLoop);
+  rafId = requestAnimationFrame(gameLoop);
 }
 
 /**
@@ -1025,7 +1042,7 @@ function resetGame() {
   // Ensure we are unpaused and running
   isPaused = false;
   lastTime = performance.now();
-  requestAnimationFrame(gameLoop); // Might already be running, but safe to ensure
+  rafId = requestAnimationFrame(gameLoop); // Might already be running, but safe to ensure
 }
 
 function saveGame() {
