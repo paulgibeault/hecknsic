@@ -10,8 +10,6 @@
  */
 
 const DEFAULT_SETTINGS = {
-  theme: 'dark',
-  soundVolume: 0.5,
   keyBindings: {
     rotateCW: 'q',
     rotateCCW: 'e',

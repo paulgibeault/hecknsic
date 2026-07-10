@@ -12,19 +12,26 @@
   <link rel="apple-touch-icon" href="img/icon-192.png">
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/overlays.css">
-  <script src="https://paulgibeault.github.io/arcade-sdk.js"></script>
+  <script src="/arcade-sdk.js"></script>
   <script>
     Arcade.init({ gameId: 'hecknsic' });
 
     // One-shot migration of pre-Arcade keys into the namespaced layout.
     // Scores and player name are dropped on purpose — fresh leaderboard
     // under the new SDK; player name re-typed on first save.
-    Arcade.state.migrate('v1', function () {
+    //
+    // rawPrefix locates the legacy keys to read: '' for keys written directly
+    // by this page (v1), or the launcher's ls-proxy namespace for keys that
+    // were shimmed through postMessage while framed in the sandboxed iframe
+    // (v2) — see commit 47faee4, since removed. Those `.ls.` keys were never
+    // read by v1 and are otherwise dead weight forever.
+    function migrateLegacyKeys(rawPrefix) {
       function take(key) {
+        var full = rawPrefix + key;
         var raw;
-        try { raw = localStorage.getItem(key); } catch (e) { return null; }
+        try { raw = localStorage.getItem(full); } catch (e) { return null; }
         if (raw === null) return null;
-        try { localStorage.removeItem(key); } catch (e) {}
+        try { localStorage.removeItem(full); } catch (e) {}
         return raw;
       }
       function takeJSON(key) {
@@ -54,7 +61,7 @@
       try {
         for (var i = 0; i < localStorage.length; i++) {
           var k = localStorage.key(i);
-          if (k) keys.push(k);
+          if (k && k.indexOf(rawPrefix) === 0) keys.push(k.substring(rawPrefix.length));
         }
       } catch (e) {}
       keys.forEach(function (k) {
@@ -70,7 +77,10 @@
           take(k); // dropped, not migrated
         }
       });
-    });
+    }
+
+    Arcade.state.migrate('v1', function () { migrateLegacyKeys(''); });
+    Arcade.state.migrate('v2', function () { migrateLegacyKeys('arcade.v1.hecknsic.ls.'); });
   </script>
 </head>
 <body>

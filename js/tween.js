@@ -12,7 +12,8 @@ const active = [];
 export function tween(durationMs, onUpdate, easing = easeOutCubic) {
   let resolve;
   const promise = new Promise(r => { resolve = r; });
-  const entry = { start: -1, duration: durationMs, onUpdate, easing, resolve, cancelled: false };
+  const reducedMotion = typeof Arcade !== 'undefined' && Arcade.settings.reducedMotion();
+  const entry = { start: -1, duration: reducedMotion ? 0 : durationMs, onUpdate, easing, resolve, cancelled: false };
   active.push(entry);
   return {
     promise,
@@ -27,7 +28,7 @@ export function updateTweens(now) {
     if (t.cancelled) { active.splice(i, 1); t.resolve(); continue; }
     if (t.start < 0) t.start = now;
     const elapsed = now - t.start;
-    const raw = Math.min(elapsed / t.duration, 1);
+    const raw = t.duration > 0 ? Math.min(elapsed / t.duration, 1) : 1;
     const progress = t.easing(raw);
     t.onUpdate(progress);
     if (raw >= 1) {

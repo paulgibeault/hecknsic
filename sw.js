@@ -1,5 +1,5 @@
 // Hecknsic Service Worker — offline-first cache
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.3.1';
 const CACHE_VERSION = `hecknsic-v${APP_VERSION}`;
 
 // WARNING: This list is manually maintained. When adding new static assets
@@ -57,6 +57,11 @@ self.addEventListener('fetch', (event) => {
 
   // Cache-first for all GET requests — serves static assets offline.
   if (event.request.method !== 'GET') return;
+
+  // Only handle requests within this game's own scope — otherwise launcher
+  // assets like /arcade-sdk.js get cached under our origin-wide fetch handler
+  // and a stale SDK is served indefinitely.
+  if (!event.request.url.startsWith(self.registration.scope)) return;
 
   event.respondWith(
     caches.match(event.request).then((cached) => {

@@ -18,6 +18,8 @@ Hecknsic is a captivating puzzle game designed for modern web platforms, inspire
   - **Bomb**: Explode a large area.
 - **Combo Chains**: Create cascading matches for exponential score multipliers.
 - **Responsive Design**: Playable on desktop and mobile devices.
+- **Dark Theme Only**: The board is styled dark-only and does not respond to
+  a host platform's light theme setting.
 
 ## How to Play
 
