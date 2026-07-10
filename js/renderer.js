@@ -26,6 +26,11 @@ export function requestRedraw() { isDirty = true; }
 export function clearDirty() { isDirty = false; }
 export function getIsDirty() { return isDirty; }
 
+let fontScale = 1;  // Arcade.settings.fontScale(), cached — applied to all ctx.font sizes
+export function setFontScale(scale) {
+  if (typeof scale === 'number' && isFinite(scale) && scale > 0) fontScale = scale;
+}
+
 
 export function hasActiveRendererAnimations() {
   return creationParticles.length > 0 ||
@@ -846,7 +851,7 @@ function drawSpecialIndicator(cx, cy, radius, type, alpha = 1, bombTimer, colorI
       // Timer number (perfectly centered on the tile)
       if (bombTimer !== undefined) {
         ctx.fillStyle = isLow ? '#FF4040' : colorData.light;
-        ctx.font = `bold ${radius * 1.4}px "Segoe UI", system-ui, sans-serif`;
+        ctx.font = `bold ${radius * 1.4 * fontScale}px "Segoe UI", system-ui, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         
@@ -1067,7 +1072,7 @@ function updateAndDrawScorePopups() {
 
     ctx.save();
     ctx.globalAlpha  = fadeA * 0.92;
-    ctx.font         = `bold ${p.fontSize * popIn}px "Segoe UI", system-ui, sans-serif`;
+    ctx.font         = `bold ${p.fontSize * popIn * fontScale}px "Segoe UI", system-ui, sans-serif`;
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
     ctx.shadowColor  = p.color;
@@ -1162,13 +1167,13 @@ function drawComboOverlay() {
   ctx.shadowColor = color;
   ctx.shadowBlur  = glow;
   ctx.fillStyle   = color;
-  ctx.font = `bold ${labelFontPx}px "Segoe UI", system-ui, sans-serif`;
+  ctx.font = `bold ${labelFontPx * fontScale}px "Segoe UI", system-ui, sans-serif`;
   ctx.fillText(label, 0, -countFontPx * 0.6);
 
   // Count
   ctx.shadowBlur  = glow * 0.5;
   ctx.fillStyle   = '#FFFFFF';
-  ctx.font = `bold ${countFontPx}px "Segoe UI", system-ui, sans-serif`;
+  ctx.font = `bold ${countFontPx * fontScale}px "Segoe UI", system-ui, sans-serif`;
   ctx.fillText(`x${comboDispCount}`, 0, labelFontPx * 0.45);
 
   ctx.restore();
