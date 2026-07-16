@@ -34,8 +34,13 @@ function hashString(str) {
 
 export function getDailyDateString(offsetDays = 0) {
   const d = new Date();
-  d.setUTCDate(d.getUTCDate() + offsetDays);
-  return d.toISOString().slice(0, 10); // "YYYY-MM-DD"
+  d.setDate(d.getDate() + offsetDays);
+  // The platform rule (Arcade.daily): dailies roll at the DEVICE-LOCAL
+  // midnight, never UTC. Fall back to the same local-date format when the
+  // SDK isn't loaded (node tests, standalone without the script tag).
+  if (typeof Arcade !== 'undefined' && Arcade.daily) return Arcade.daily.dateStr(d);
+  const p = (n) => (n < 10 ? '0' : '') + n;
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
 export function getDailyPuzzleId(dateStr) {
