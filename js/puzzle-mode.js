@@ -26,6 +26,7 @@ import {
   getPuzzleProgress,
   savePuzzleProgress,
   isSectorUnlocked,
+  recordPuzzleSolved,
 } from './storage.js';
 import { getTodaysPuzzle, getDailyDateString, getDailyProgress } from './daily-puzzle.js';
 import { showPuzzleEditor, registerEditorCallbacks, initPuzzleEditorUI } from './puzzle-editor.js';
@@ -108,6 +109,7 @@ export function onPuzzleMove(grid, score, chainLevel) {
     puzzleDone = true;
     const stars = computeStars(activePuzzle, movesUsed, maxChain);
     savePuzzleProgress(activePuzzle.id, { stars, movesUsed, score: stats.score ?? 0 });
+    recordPuzzleSolved(!!activePuzzle.isDaily);
     setTimeout(() => showPuzzleResult(stars), 600);
     return;
   }

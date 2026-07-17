@@ -114,6 +114,27 @@ export function getHighScores(modeId) {
   return Arcade.scores.list(modeId, { limit: 10 });
 }
 
+// ─── Lifetime stats (Arcade.stats, category 'lifetime') ─────────
+// Read by the launcher's records surfaces; nothing in-game renders these yet.
+// A "game" is an arcade/chill run that ended (bomb or session end); a puzzle
+// or daily only counts when actually solved — there is no lose-credit.
+
+export function recordGameEnd(maxCombo) {
+  Arcade.stats.update('lifetime', (s) => ({
+    ...s,
+    gamesPlayed: (s.gamesPlayed || 0) + 1,
+    bestCombo:   Math.max(s.bestCombo || 0, maxCombo || 0),
+  }));
+}
+
+export function recordPuzzleSolved(isDaily) {
+  Arcade.stats.update('lifetime', (s) => ({
+    ...s,
+    puzzlesSolved: (s.puzzlesSolved || 0) + 1,
+    dailiesSolved: (s.dailiesSolved || 0) + (isDaily ? 1 : 0),
+  }));
+}
+
 // ─── Player name (cross-game, lives at arcade.v1.global.playerName) ──
 
 export function getPlayerName() {

@@ -18,7 +18,7 @@ import {
   detectStarflowersAtCleared, detectBlackPearls, detectMultiplierClusters
 } from './specials.js';
 import { onStarflowerCreated } from './puzzle-mode.js';
-import { getPlayerName } from './storage.js';
+import { getPlayerName, recordGameEnd } from './storage.js';
 
 function prepopulateNameInputs() {
   const name = getPlayerName();
@@ -511,6 +511,7 @@ export async function handleGameOver(ctx, isSessionEnd = false) {
   ctx.setState('gameover');
   const combinedId = ctx.getCombinedModeId();
   ctx.clearGameState(combinedId);
+  recordGameEnd(getMaxCombo());
   // Score is committed when the user confirms their name in modal-gameover
   // (or already committed by btn-confirm-end before this runs, for chill).
 

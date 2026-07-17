@@ -88,7 +88,7 @@ export function initPuzzleEditorUI() {
     if (!input) return;
     const puzzle = decodePuzzleShareCode(input.value.trim());
     if (!puzzle) {
-      showEditorStatus('❌ Invalid code', '#ff6060');
+      showEditorStatus('❌ Invalid code', 'error');
       return;
     }
     document.getElementById('modal-puzzle-editor').classList.add('hidden');
@@ -102,13 +102,13 @@ export function initPuzzleEditorUI() {
     const board = encodePuzzleBoard(grid, GRID_COLS, GRID_ROWS);
     const ta = document.getElementById('editor-board-string');
     if (ta) ta.value = board;
-    showEditorStatus('✅ Board captured', '#60d060');
+    showEditorStatus('✅ Board captured', 'success');
   });
 
   // Generate share code button
   document.getElementById('btn-generate-code')?.addEventListener('click', () => {
     const board = document.getElementById('editor-board-string')?.value?.trim();
-    if (!board) { showEditorStatus('❌ Capture a board first', '#ff6060'); return; }
+    if (!board) { showEditorStatus('❌ Capture a board first', 'error'); return; }
 
     const name      = document.getElementById('editor-name')?.value || 'Custom Puzzle';
     const desc      = document.getElementById('editor-desc')?.value || '';
@@ -129,17 +129,17 @@ export function initPuzzleEditorUI() {
       codeBox.textContent = code;
       codeBox.onclick = () => {
         navigator.clipboard?.writeText(code).then(() => {
-          showEditorStatus('📋 Copied!', '#b070f0');
+          showEditorStatus('📋 Copied!', 'success');
         });
       };
     }
-    showEditorStatus('✅ Code ready — tap to copy', '#60d060');
+    showEditorStatus('✅ Code ready — tap to copy', 'success');
   });
 
   // Play from editor button
   document.getElementById('btn-play-from-editor')?.addEventListener('click', () => {
     const board     = document.getElementById('editor-board-string')?.value?.trim();
-    if (!board) { showEditorStatus('❌ Capture a board first', '#ff6060'); return; }
+    if (!board) { showEditorStatus('❌ Capture a board first', 'error'); return; }
 
     const name      = document.getElementById('editor-name')?.value || 'Custom Puzzle';
     const cols      = parseInt(document.getElementById('editor-cols')?.value) || GRID_COLS;
@@ -213,13 +213,11 @@ function updateGoalParamLabel(goalType) {
   }
 }
 
-function showEditorStatus(msg, color = '#d0d0d8') {
-  const el = document.getElementById('editor-status');
-  if (!el) return;
-  el.textContent = msg;
-  el.style.color = color;
-  el.style.opacity = '1';
-  setTimeout(() => { el.style.opacity = '0'; }, 2500);
+// Editor status rides the platform toast (launcher-rendered when framed,
+// SDK fallback standalone). The old inline hex colors collapse onto the
+// SDK's kinds: red → error, green → success, everything else → info.
+function showEditorStatus(msg, kind = 'info') {
+  Arcade.ui.toast(msg, { kind });
 }
 
 export function showPuzzleEditor() {
