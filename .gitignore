@@ -25,4 +25,3 @@ node_modules/
 .idea/
 *.log
 .go.pid
-.arcade-stage/
