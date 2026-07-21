@@ -135,6 +135,51 @@ export function recordPuzzleSolved(isDaily) {
   }));
 }
 
+// ─── Records (Arcade.records) — per-mode single best score ──────
+// One self-describing best-ever value per score-accumulating mode, rendered by
+// the launcher's Records sheet with zero in-game code. These live ALONGSIDE the
+// per-mode Arcade.scores leaderboards (R4) — the boards stay a ranked top-N with
+// names; the record is the single "best ever" framing.
+//
+// Only arcade + chill accumulate a mode-wide score (finalised via
+// commitScoreFromInput → addHighScore). Puzzle mode tracks bests per-puzzle
+// (savePuzzleProgress), not one mode aggregate, so it gets no record category
+// here — that would be a per-puzzle category explosion (capped at 50 by R4).
+const RECORD_SCORE_MODES = { arcade: 'Arcade', chill: 'Chill' };
+
+/**
+ * Promote a finalised mode score to its single-best record. Idempotent (best()
+ * never regresses; ties don't write). Feature-detected (R5) so a stale SDK is a
+ * no-op. Category slug is permanent schema: `best_score_<mode>`.
+ */
+export function recordModeScore(modeId, score) {
+  if (!(window.Arcade && Arcade.records)) return;
+  const modeLabel = RECORD_SCORE_MODES[modeId];
+  if (!modeLabel || !Number.isFinite(score)) return;
+  Arcade.records.best(`best_score_${modeId}`, {
+    value: score,
+    direction: 'higher',
+    format: 'integer',
+    label: `Best score — ${modeLabel}`,
+  });
+}
+
+/**
+ * One-shot seed of the records categories from the existing per-mode
+ * leaderboards, so long-time players don't lose their best. Idempotent via
+ * best(); guarded so a records-less SDK leaves the migration unmarked and
+ * retries after a later SDK upgrade.
+ */
+export function seedRecordsFromScores() {
+  if (!(window.Arcade && Arcade.records)) return;
+  Arcade.state.migrate('records-v1', () => {
+    for (const modeId of Object.keys(RECORD_SCORE_MODES)) {
+      const top = Arcade.scores.list(modeId, { limit: 1 })[0];
+      if (top && Number.isFinite(top.score)) recordModeScore(modeId, top.score);
+    }
+  });
+}
+
 // ─── Player name (cross-game, lives at arcade.v1.global.playerName) ──
 
 export function getPlayerName() {

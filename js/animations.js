@@ -19,6 +19,7 @@ import {
 } from './specials.js';
 import { onStarflowerCreated } from './puzzle-mode.js';
 import { getPlayerName, recordGameEnd } from './storage.js';
+import { sfx } from './audio.js';
 
 function prepopulateNameInputs() {
   const name = getPlayerName();
@@ -512,6 +513,7 @@ export async function handleGameOver(ctx, isSessionEnd = false) {
   const combinedId = ctx.getCombinedModeId();
   ctx.clearGameState(combinedId);
   recordGameEnd(getMaxCombo());
+  sfx('game-over'); // covers bomb explosion and chill session end
   // Score is committed when the user confirms their name in modal-gameover
   // (or already committed by btn-confirm-end before this runs, for chill).
 
