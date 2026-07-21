@@ -60,8 +60,10 @@ import {
   saveGameState, loadGameState, clearGameState,
   addHighScore, getHighScores,
   getPlayerName, setPlayerName,
-  loadSettings, saveSettings
+  loadSettings, saveSettings,
+  recordModeScore, seedRecordsFromScores,
 } from './storage.js';
+import { sfx, comboFreq, wireUiClicks } from './audio.js';
 import {
   initPuzzleModeUI, showPuzzleSelector, registerPuzzleCallbacks,
   clearActivePuzzle, getActivePuzzle, getPuzzleMovesLeft,
@@ -545,6 +547,12 @@ window.addEventListener('resize', () => {
 // Restore active mode then load per-mode saved state
 loadActiveMode();
 
+// One-shot: seed the per-mode best-score records from existing leaderboards so
+// long-time players keep their history (idempotent). Then wire the soft
+// ui-click cue onto menu/button interactions.
+seedRecordsFromScores();
+wireUiClicks();
+
 // Puzzle mode is transient (board state isn't persisted), so it can't be
 // meaningfully restored on reload.  Fall back to arcade.
 if (getActiveGameModeId() === 'puzzle') {
@@ -825,6 +833,7 @@ function resetBoardForNewMode() {
 async function animateRotation(clockwise) {
   if (state !== 'selected') return;
   state = 'rotating';
+  sfx('rotate'); // one blip per player rotation press (not per internal step)
   const gen = boardGeneration;
   const ctx = getAnimationContext();
 
@@ -913,7 +922,10 @@ async function postRotationCheck(gen) {
       const currentScore = getScore();
       let dynamicInterval = 15 - Math.floor(currentScore / 5000);
       if (dynamicInterval < 4) dynamicInterval = 4;
-      if (moveCount % dynamicInterval === 0) bombQueued = true;
+      if (moveCount % dynamicInterval === 0 && !bombQueued) {
+        bombQueued = true;
+        sfx('bomb'); // a bomb is about to appear on the board
+      }
     }
   }
 
@@ -938,6 +950,7 @@ async function postRotationCheck(gen) {
       if (boardGeneration !== gen) return;
       isFirstStep = false;
       state = 'cascading';
+      sfx('special'); // grand poobah formed
       await animateGrandPoobahCreation(ctx, gpResults);
       if (boardGeneration !== gen) return;
       boardStable = false;
@@ -950,6 +963,7 @@ async function postRotationCheck(gen) {
       if (boardGeneration !== gen) return;
       isFirstStep = false;
       state = 'cascading';
+      sfx('special'); // black pearl formed
       await animateBlackPearlCreation(ctx, bpResults);
       if (boardGeneration !== gen) return;
       boardStable = false;
@@ -962,6 +976,7 @@ async function postRotationCheck(gen) {
       if (boardGeneration !== gen) return;
       isFirstStep = false;
       state = 'cascading';
+      sfx('special'); // starflower formed
       await animateStarflowerCreation(ctx, sfResults);
       if (boardGeneration !== gen) return;
       boardStable = false;
@@ -970,10 +985,15 @@ async function postRotationCheck(gen) {
 
     const matches = findMatchesForMode(grid, activeCols, activeRows);
     if (matches.size > 0) {
-      if (!isFirstStep) { advanceChain(); await delay(100); }
+      const chained = !isFirstStep;
+      if (chained) { advanceChain(); await delay(100); }
       if (boardGeneration !== gen) return;
       isFirstStep = false;
       state = 'cascading';
+      // First clear = plain match; chained cascade steps = combo, pitch rising
+      // with chain depth via a per-play freq override.
+      if (chained) sfx('combo', { freq: comboFreq(getChainLevel()) });
+      else sfx('match');
       await runCascade(ctx, matches, gen);
       if (boardGeneration !== gen) return;
       boardStable = false;
@@ -1100,7 +1120,10 @@ function setNameFromInput(inputId) {
  *  for the active game mode. Call once per game-over flow before resetGame. */
 function commitScoreFromInput(inputId, achievement) {
   setNameFromInput(inputId);
-  addHighScore(getActiveGameModeId(), getScore(), achievement, getMaxCombo());
+  const modeId = getActiveGameModeId();
+  addHighScore(modeId, getScore(), achievement, getMaxCombo());
+  // Records: single best-ever score per mode, alongside the leaderboard (R4).
+  recordModeScore(modeId, getScore());
 }
 
 function clustersMatch(a, b) {
