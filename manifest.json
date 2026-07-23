@@ -3,7 +3,7 @@
   "short_name": "Hecknsic",
   "description": "A hex-grid puzzle game with daily challenges and puzzle editor.",
   "scope": "./",
-  "start_url": "./index.html?v=1.2.17",
+  "start_url": "./index.html?v=1.2.18",
   "display": "standalone",
   "background_color": "#0a0b0e",
   "theme_color": "#1a1b35",
