@@ -1,5 +1,5 @@
 // Hecknsic Service Worker — offline-first cache
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.4.1';
 const CACHE_VERSION = `hecknsic-v${APP_VERSION}`;
 
 // WARNING: This list is manually maintained. When adding new static assets
@@ -53,9 +53,6 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Skip caching on localhost — always serve fresh files during development.
-  if (self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1') return;
-
   // Cache-first for all GET requests — serves static assets offline.
   if (event.request.method !== 'GET') return;
 
@@ -63,6 +60,27 @@ self.addEventListener('fetch', (event) => {
   // assets like /arcade-sdk.js get cached under our origin-wide fetch handler
   // and a stale SDK is served indefinitely.
   if (!event.request.url.startsWith(self.registration.scope)) return;
+
+  const isLoopback = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
+
+  if (isLoopback) {
+    // Network-first on localhost: prefer fresh files during development
+    // (no stale-cache surprises while iterating without a version bump),
+    // but still fall back to cache when actually offline, so this worker
+    // exercises real offline behavior instead of stepping aside entirely.
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response && response.status === 200 && response.type !== 'opaque') {
+            const cloned = response.clone();
+            caches.open(CACHE_VERSION).then((cache) => cache.put(event.request, cloned));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
 
   event.respondWith(
     caches.match(event.request).then((cached) => {
