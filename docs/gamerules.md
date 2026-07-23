@@ -107,11 +107,18 @@ The game will be structured into modular components to ensure maintainability an
 * **Player Management Module**:  
   * Manages player states and actions in both single and multiplayer modes.  
   * Handles player-specific data like scores and current power-ups.  
-* **Graphics and Audio Module**:  
+* **Graphics and Audio Module** *(superseded — see note below)*:  
   * Manages rendering to the canvas (using PixiJS/Phaser).  
   * Handles visual effects for matches, special pieces, and power-ups.  
   * Synchronizes visual pulsing/vibration with game music.  
   * Manages sound effects and background music.
+
+> **Note (2026-07-21):** this is an early speculative spec superseded by
+> the actual build in several respects — rendering is Canvas 2D directly
+> (no PixiJS/Phaser, per `Dev_Plan.md`), and audio is short synth SFX cues
+> via the launcher's `Arcade.audio` (`js/audio.js`), with no background
+> music or beat-sync. High scores are tracked via `Arcade.records`
+> (per-mode single best), not a dedicated scoring module.
 
 ### **3.3 Game Loop and Rendering**
 
