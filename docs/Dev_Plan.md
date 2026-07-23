@@ -11,7 +11,7 @@ A clean, phase-gated blueprint to recreate the speed and vibe of Hecknsic HD as 
 | **Rendering** | HTML5 Canvas 2D | Zero dependencies, fast for 2D, easy bevel/gradient effects |
 | **Language** | Vanilla JS (ES6+ modules) | No build step, `<script type="module">` |
 | **Structure** | Single `index.html` + module files | Serve from any static host |
-| **Audio** | Web Audio API | Beat analysis, spatial SFX, no libs needed |
+| **Audio** | Managed `Arcade.audio` SFX (launcher SDK 3.5.0+) | Short synth cues only — no beat analysis, no spatial audio, no music (see §2 note) |
 | **Multiplayer** | WebRTC DataChannel | P2P, low latency, no game server |
 | **Signaling** | QR code exchange (`qrcode-generator` + camera scan) | No central server required |
 
@@ -36,13 +36,16 @@ js/
   score.js           ← points, chain multiplier, level
   specials.js        ← star, flower, bomb creation + activation
   tween.js           ← lightweight easing helper (~40 lines)
-  audio.js           ← music, SFX, beat detection
+  audio.js           ← SFX cue registrations + play wrapper, via Arcade.audio
   multiplayer.js     ← WebRTC, QR signaling, state sync
   ui.js              ← HUD overlays (score, combo, pause)
-assets/
-  sounds/            ← match.wav, rotate.wav, combo.wav, etc.
-  music/             ← background track(s)
 ```
+
+> **Note (2026-07-21):** shipped audio is short synth cues via the
+> launcher's managed `Arcade.audio` — no `assets/sounds/`, no
+> `assets/music/`, no beat detection. Background music was descoped (see
+> §5's development-phases checklist below); the `assets/` tree this
+> section originally sketched was never built.
 
 ---
 
@@ -216,8 +219,8 @@ Each hex is drawn as a 6-sided polygon with:
   - Visual: shockwave ring + debris particles
 - [ ] **Obstacle pieces** (stone): immovable, cleared only by adjacent matches or specials
 - [ ] Particle system: simple canvas-drawn circles with velocity + fade for match/explosion FX
-- [ ] Sound effects: rotate click, match chime (pitch rises with chain length), combo whoosh, special activation
-- [ ] Background music: Web Audio API playback, optional BPM detection for pulsing hex brightness
+- [x] Sound effects: rotate click, match chime (pitch rises with chain length via per-play `freq` override), special activation — shipped 2026-07-21 via `Arcade.audio` (`js/audio.js`)
+- [ ] Background music: **descoped** — no music/beat-detection layer was built; the shipped audio is short discrete SFX cues only
 - [ ] Level progression: increase color count or add obstacles as score milestones are reached
 - [ ] Game-over condition: no valid moves remaining → show final score
 
