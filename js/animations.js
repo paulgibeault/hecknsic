@@ -19,7 +19,7 @@ import {
 } from './specials.js';
 import { onStarflowerCreated } from './puzzle-mode.js';
 import { getPlayerName, recordGameEnd } from './storage.js';
-import { sfx } from './audio.js';
+import { playGameOver, playOverAchiever, stopBed } from './audio.js';
 
 function prepopulateNameInputs() {
   const name = getPlayerName();
@@ -453,6 +453,8 @@ export async function animateGrandPoobahCreation(ctx, gpResults) {
 
 export async function handleOverAchiever(ctx) {
   ctx.setState('gameover');
+  stopBed(1.5);
+  playOverAchiever();
   const combinedId = ctx.getCombinedModeId();
   ctx.clearGameState(combinedId);
   // Score is committed when the user confirms their name in modal-over-achiever.
@@ -513,7 +515,11 @@ export async function handleGameOver(ctx, isSessionEnd = false) {
   const combinedId = ctx.getCombinedModeId();
   ctx.clearGameState(combinedId);
   recordGameEnd(getMaxCombo());
-  sfx('game-over'); // covers bomb explosion and chill session end
+  // A real game over is two events: the detonation, then the aftermath tolls a
+  // beat behind it. A peaceful chill-session end is the tolls alone — nothing
+  // exploded. The floor drops away under both.
+  stopBed(1.5);
+  playGameOver(isSessionEnd);
   // Score is committed when the user confirms their name in modal-gameover
   // (or already committed by btn-confirm-end before this runs, for chill).
 

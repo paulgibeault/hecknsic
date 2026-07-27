@@ -13,6 +13,12 @@
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/overlays.css">
   <script src="/arcade-sdk.js"></script>
+  <!-- The shared physical-gesture element library, and this game's sound pack
+       built on it. Both are optional: if either is missing (a stale cached SDK,
+       or running standalone off the launcher origin), js/audio.js falls back to
+       the archived chiptune spec cues. -->
+  <script src="/arcade-audio.js"></script>
+  <script src="js/soundpack.js"></script>
   <script>
     Arcade.init({ gameId: 'hecknsic' });
 

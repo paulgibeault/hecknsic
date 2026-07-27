@@ -12,7 +12,7 @@ import {
   GRID_COLS, GRID_ROWS,
   MATCH_FLASH_MS, GRAVITY_MS,
   ROTATION_POP_MS, ROTATION_SETTLE_MS,
-  BOMB_SPAWN_INTERVAL,
+  BOMB_SPAWN_INTERVAL, BOMB_INITIAL_TIMER,
 } from './constants.js';
 import {
   createGrid, rotateCluster, rotateRing,
@@ -63,7 +63,12 @@ import {
   loadSettings, saveSettings,
   recordModeScore, seedRecordsFromScores,
 } from './storage.js';
-import { sfx, comboFreq, wireUiClicks } from './audio.js';
+import {
+  wireUiClicks,
+  playRotate, playSelect, playMatch, playCombo, playSpecial,
+  playBombArrive, playBombTick, playGameWin,
+  startBed, stopBed, setBedUrgency,
+} from './audio.js';
 import {
   initPuzzleModeUI, showPuzzleSelector, registerPuzzleCallbacks,
   clearActivePuzzle, getActivePuzzle, getPuzzleMovesLeft,
@@ -632,15 +637,22 @@ function gameLoop(timestamp) {
     return;
   }
 
-  // Process input — only consume in states that can use it
+  // Process input — only consume in states that can use it.
+  //
+  // A consumed action is a genuine user gesture, which is also what unlocks the
+  // AudioContext under the browser's autoplay policy — so the ambient floor is
+  // started from here rather than at load, where it would be blocked. Both
+  // calls are idempotent and early-return once the bed is running.
   if (state === 'idle') {
     const action = consumeAction();
     if (action && action.type === 'select') {
+      startBed(getActiveGameModeId());
       trySelect();
     }
   } else if (state === 'selected') {
     const action = consumeAction();
     if (action) {
+      startBed(getActiveGameModeId());
       if (action.type === 'rotateCW' || action.type === 'rotateCCW') {
         animateRotation(action.type === 'rotateCW');
       } else if (action.type === 'select') {
@@ -719,6 +731,7 @@ function trySelect() {
         flowerCenter = null;
         selectedCluster = [{ col: hex.col, row: hex.row }, ...yHexes];
         state = 'selected';
+        playSelect();
         // Pearl center is the center hex pixel
         const cp = hexToPixel(hex.col, hex.row, originX, originY);
         setClusterCenterPx(cp.x, cp.y);
@@ -740,6 +753,7 @@ function trySelect() {
       pearlCenter = null;
       selectedCluster = [{ col: hex.col, row: hex.row }, ...nbrs];
       state = 'selected';
+      playSelect();
       // Flower center pixel
       const cp = hexToPixel(hex.col, hex.row, originX, originY);
       setClusterCenterPx(cp.x, cp.y);
@@ -758,6 +772,7 @@ function trySelect() {
     pearlCenter = null;
     selectedCluster = cluster;
     state = 'selected';
+    playSelect();
     // Compute centroid of the 3 cluster hexes
     const px = cluster.map(h => hexToPixel(h.col, h.row, originX, originY));
     setClusterCenterPx(
@@ -833,7 +848,10 @@ function resetBoardForNewMode() {
 async function animateRotation(clockwise) {
   if (state !== 'selected') return;
   state = 'rotating';
-  sfx('rotate'); // one blip per player rotation press (not per internal step)
+  // One ratchet per player rotation press, not per internal step. The
+  // mechanism's size follows what is actually turning: a starflower spins its
+  // six-tile ring, a black pearl its Y, everything else the plain 3-cluster.
+  playRotate(flowerCenter ? 'ring' : pearlCenter ? 'y' : 'cluster');
   const gen = boardGeneration;
   const ctx = getAnimationContext();
 
@@ -877,8 +895,32 @@ async function animateRotation(clockwise) {
 
 function handleGameWin() {
   state = 'gameover';
+  stopBed();
+  playGameWin();
   prepopulateNameInputs();
   document.getElementById('modal-gamewin').classList.remove('hidden');
+}
+
+/** How pressed the player is by bombs, 0..1, from the SHORTEST live fuse on the
+ *  board — that is the one that ends the game. Arcade bombs spawn at
+ *  BOMB_INITIAL_TIMER, so a fresh one sits near 0 and the last move before
+ *  detonation is 1; a puzzle bomb placed on a shorter fuse simply starts
+ *  further up the scale, which is the right reading. Returns 0 when the board
+ *  is clear, which is what silences the tension bed entirely.
+ *  @returns {number} */
+function bombUrgency() {
+  let min = Infinity;
+  for (let c = 0; c < activeCols; c++) {
+    for (let r = 0; r < activeRows; r++) {
+      const cell = grid[c]?.[r];
+      if (cell?.special === 'bomb' && typeof cell.bombTimer === 'number') {
+        if (cell.bombTimer < min) min = cell.bombTimer;
+      }
+    }
+  }
+  if (min === Infinity) return 0;
+  const u = 1 - (min - 1) / BOMB_INITIAL_TIMER;
+  return Math.max(0, Math.min(1, u));
 }
 
 /** Shared post-rotation logic: tick bombs, cascade or detect specials.
@@ -905,6 +947,9 @@ async function postRotationCheck(gen) {
       }
     }
     if (bombCells.length > 0) {
+      // The fuse clock, with the shake. Urgency tracks the SHORTEST live fuse,
+      // since that is the one about to end the game.
+      playBombTick(bombUrgency());
       await tween(250, t => {
         const shakeX = Math.sin(t * Math.PI * 6) * 4 * (1 - t);
         for (const b of bombCells) {
@@ -924,7 +969,7 @@ async function postRotationCheck(gen) {
       if (dynamicInterval < 4) dynamicInterval = 4;
       if (moveCount % dynamicInterval === 0 && !bombQueued) {
         bombQueued = true;
-        sfx('bomb'); // a bomb is about to appear on the board
+        playBombArrive(); // a bomb is about to appear on the board
       }
     }
   }
@@ -950,7 +995,7 @@ async function postRotationCheck(gen) {
       if (boardGeneration !== gen) return;
       isFirstStep = false;
       state = 'cascading';
-      sfx('special'); // grand poobah formed
+      playSpecial('grandpoobah');
       await animateGrandPoobahCreation(ctx, gpResults);
       if (boardGeneration !== gen) return;
       boardStable = false;
@@ -963,7 +1008,7 @@ async function postRotationCheck(gen) {
       if (boardGeneration !== gen) return;
       isFirstStep = false;
       state = 'cascading';
-      sfx('special'); // black pearl formed
+      playSpecial('blackpearl');
       await animateBlackPearlCreation(ctx, bpResults);
       if (boardGeneration !== gen) return;
       boardStable = false;
@@ -976,7 +1021,7 @@ async function postRotationCheck(gen) {
       if (boardGeneration !== gen) return;
       isFirstStep = false;
       state = 'cascading';
-      sfx('special'); // starflower formed
+      playSpecial('starflower');
       await animateStarflowerCreation(ctx, sfResults);
       if (boardGeneration !== gen) return;
       boardStable = false;
@@ -990,10 +1035,10 @@ async function postRotationCheck(gen) {
       if (boardGeneration !== gen) return;
       isFirstStep = false;
       state = 'cascading';
-      // First clear = plain match; chained cascade steps = combo, pitch rising
-      // with chain depth via a per-play freq override.
-      if (chained) sfx('combo', { freq: comboFreq(getChainLevel()) });
-      else sfx('match');
+      // First clear = plain match, sized by how much glass broke; chained
+      // cascade steps = combo, climbing the ladder with chain depth.
+      if (chained) playCombo(getChainLevel());
+      else playMatch(matches.size);
       await runCascade(ctx, matches, gen);
       if (boardGeneration !== gen) return;
       boardStable = false;
@@ -1013,6 +1058,11 @@ async function postRotationCheck(gen) {
   }
 
   resetChain();
+
+  // The floor answers the board: the tension layer tracks the shortest live
+  // fuse and goes silent when there are none. Quantised + hysteresis inside,
+  // so calling it every move costs a retune only a handful of times a session.
+  setBedUrgency(bombUrgency());
 
   // Puzzle move tracking
   const activePuzzle = getActivePuzzle();
@@ -1056,7 +1106,13 @@ function resetGame() {
   selectedCluster = null;
   flowerCenter = null;
   pearlCenter = null;
-  
+
+  // A restart is a fresh room: drop the old floor and start one at the new
+  // mode's intensity. startBed() is idempotent, so the stop matters more than
+  // the start — without it a mode switch would leave the previous bed running.
+  stopBed(0.4);
+  startBed(getActiveGameModeId());
+
   document.getElementById('modal-gameover').classList.add('hidden');
   
   // Ensure we are unpaused and running
