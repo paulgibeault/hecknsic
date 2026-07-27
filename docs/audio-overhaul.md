@@ -8,16 +8,18 @@ silence.
 
 ## Status
 
-Shipped. `js/soundpack.js` was written against audition v1
+Shipped and ear-passed. `js/soundpack.js` was written against audition v1
 (`tools/soundpack/render.mjs hecknsic` in the launcher repo, 4:47, peaks
-≤0.83); retuning happens against a re-render, not against the wired game.
+≤0.83) and approved by ear at that version — no retune was needed. Any future
+change is auditioned the same way: re-render, listen, quote a timestamp. Do
+not retune against the wired game.
 
 | phase | state |
 |---|---|
 | 1. Framework elements (`shatter`, `ratchet`, `drone`) in `../paulgibeault.github.io/arcade-audio.js` | done |
 | 2. `js/soundpack.js` — 14 cues, 2 beds, 3 material tables | done |
 | 3. Audition timeline + rendered WAV | done |
-| 4. Ear pass / tuning loop | **open — retune the pack, re-render, repeat** |
+| 4. Ear pass / tuning loop | done — v1 approved as rendered, no retune needed |
 | 5. `js/audio.js` two-path rewrite | done |
 | 6. Call-site wiring, `index.html`, `sw.js`, `ago` | done |
 | 7. Verification | done — see below |
@@ -43,12 +45,10 @@ Shipped. `js/soundpack.js` was written against audition v1
 
 ### Known gaps
 
-- The pack has not had its ear pass. That is phase 4 and it is the point of the
-  audition workflow — quote a timestamp from the INDEX, retune, re-render.
 - `render.mjs` documents reproducibility as a design goal, but only the pack
   code is seeded; Chromium's convolver render varies by ~1 LSB between runs.
-  Worth a separate launcher issue — it makes checksum-based regression testing
-  of sound packs impossible.
+  Filed as paulgibeault/paulgibeault.github.io#98 — it makes checksum-based
+  regression testing of sound packs impossible.
 - The same `ago` staging gap fixed here (hardcoded launcher file list falling
   behind the SDK) exists in moon-lit's `ago`.
 
@@ -113,7 +113,7 @@ fade-in/out, `collect`-aware). Symmetric detuned pair beats at a rate set by
 `type` ('sine'), `sub` octave-down level (0), `lp` (500) + drift LFO (`drift`
 0.06 Hz, `driftAmt`), `gain`, `fade` (1.5), `collect`.
 
-## Audition workflow (phase 4 — the loop we are in)
+## Audition workflow
 
 ```bash
 cd ../paulgibeault.github.io
