@@ -1,5 +1,5 @@
 // Hecknsic Service Worker — offline-first cache
-const APP_VERSION = '1.4.1';
+const APP_VERSION = '1.5.0';
 const CACHE_VERSION = `hecknsic-v${APP_VERSION}`;
 
 // WARNING: This list is manually maintained. When adding new static assets
@@ -24,6 +24,7 @@ const STATIC_ASSETS = [
   './js/puzzles.js',
   './js/renderer.js',
   './js/score.js',
+  './js/soundpack.js',
   './js/specials.js',
   './js/storage.js',
   './js/tween.js',
