@@ -51,7 +51,10 @@ function makeWindow({ elements, withPack }) {
   };
   const w = { Arcade: { audio } };
   if (withPack) {
-    w.HecknsicPack = {
+    // The framework's well-known handle — js/soundpack.js publishes here via
+    // ArcadeAudioElements.registerPack(), so the launcher's soundpack tooling
+    // can reach any game's pack without knowing the game's name.
+    w.ArcadeSoundPack = {
       ROOM: {}, SENDS: {},
       CUES: Object.fromEntries(PACK_CUES.map((n) => [n, () => {}])),
       pulse() {}, tension() {},
