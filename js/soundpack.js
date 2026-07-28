@@ -463,9 +463,12 @@
     return S.teardown(collect);
   }
 
-  global.HecknsicPack = {
+  // Published under the framework's well-known handle (arcade-audio.js
+  // registerPack) so the game's audio module and the launcher's soundpack
+  // toolchain both reach it without either side knowing this game's name.
+  S.registerPack({
     name: 'hecknsic', ROOM, SENDS, CUES,
     GLASS, CHROME, OBSIDIAN,
     pulse, tension,
-  };
+  });
 })(typeof window !== 'undefined' ? window : globalThis);
