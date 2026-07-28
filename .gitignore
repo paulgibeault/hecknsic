@@ -26,3 +26,4 @@ node_modules/
 *.log
 .go.pid
 .arcade-stage/
+audio/out/

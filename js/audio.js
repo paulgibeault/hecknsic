@@ -40,7 +40,7 @@
  *        so no `await Arcade.ready` is needed; the SDK's classic <script> +
  *        `Arcade.init(...)` in index.html's <head> have already run by the time
  *        this ES module evaluates, so `window.Arcade.audio` and
- *        `window.HecknsicPack` are both present.
+ *        `window.ArcadeSoundPack` are both present.
  *   A2 — every play-site in the game goes through a wrapper below, which
  *        feature-detects `Arcade.audio`. hecknsic has NO in-game sound
  *        setting, so the wrappers are a pure feature detect.
@@ -56,7 +56,7 @@ const audio = () =>
     : null;
 
 const pack = () =>
-  (typeof window !== 'undefined' && window.HecknsicPack) ? window.HecknsicPack : null;
+  (typeof window !== 'undefined' && window.ArcadeSoundPack) ? window.ArcadeSoundPack : null;
 
 // ─── ambient beds ───────────────────────────────────────────────────────────
 // The floor of the room, as two sustained cues on different clocks: the pulse,
