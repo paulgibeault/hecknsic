@@ -2,9 +2,9 @@
  * audio.js — Sound for hecknsic, via the launcher SDK's managed `Arcade.audio`.
  * This is the game's single audio module.
  *
- * Two registration paths live here:
+ * THE PACK IS THE SOUND. One registration path lives here:
  *
- *   GRAPH PATH (SDK 3.7.0's /arcade-audio.js loaded) — the real sound design.
+ *   GRAPH PATH (SDK 3.7.0's /arcade-audio.js loaded) — the sound design.
  *     js/soundpack.js holds the pack; every cue is a WebAudio node graph built
  *     from physical-gesture elements (strike, body, thump, flare, blast, and
  *     the shatter / ratchet / drone elements this game drove into the shared
@@ -20,20 +20,14 @@
  *     often — and that is all js/soundpack.js contains. A gesture this game
  *     needs and the library lacks goes into the library.
  *
- *   FALLBACK PATH (older cached SDK/companion, or standalone without
- *     /arcade-audio.js) — the archived chiptune profile, copied verbatim from
- *     this file as it stood at 9169f43 ("Re-tune SFX: struck glass on a dark
- *     board, not chiptune"). Single-spec cues: the only thing a pre-3.6.0
- *     `Arcade.audio` can play. It exists because a player on a stale
- *     service-worker cache should get the old sound rather than silence; that
- *     is an expected state, not an error, so it is not logged. See
- *     NEEDED_ELEMENTS below for what decides the path.
- *
- * Both paths register cue names the play-wrappers below know how to reach, so
- * every call site in the game works unchanged either way — the wrappers, not
- * the call sites, absorb the difference (the graph path splits `special` into
- * three materially different formations, for instance, where the chiptune
- * profile has one).
+ * There is NO fallback. When the capability gate below fails (a stale
+ * service-worker cache serving an older SDK/companion, or standalone without
+ * /arcade-audio.js), this module registers nothing and the game plays silent.
+ * That is deliberate, fleet-wide (2026-07-28): chiptune is an aesthetic a game
+ * adopts as its identity, not a degraded mode a graph-pack game decays into.
+ * The archived profile lives in audio/chiptune-archive.mjs as provenance only.
+ * Silence on a stale cache is an expected state, not an error — no console
+ * noise, and every play-wrapper below stays a safe no-op.
  *
  * Conventions (fleet Arcade.audio conventions, launcher GAME_INTEGRATION.md §5):
  *   A1 — cues are registered ONCE here at module load. Audio is purely local,
@@ -87,16 +81,20 @@ const URGENCY_UP = [0.30, 0.58, 0.84];
 const URGENCY_DOWN = [0.20, 0.48, 0.74];
 const URGENCY_CROSSFADE = 2.0;
 
-// True once the graph path has registered successfully. Everything only the
-// graph path can do (the beds, the split formations, the bomb chain) keys off
-// this.
+// True once the pack has registered successfully — which now means: true if
+// this module registered anything at all. When it is false the game is
+// deliberately silent, and every wrapper below is a no-op.
 let graphMode = false;
 
 // ─── the play wrappers (A2) ─────────────────────────────────────────────────
-// Silent no-ops when Arcade.audio is absent, or when the launcher has muted
-// (the SDK short-circuits before touching the AudioContext).
+// Silent no-ops when Arcade.audio is absent, when the capability gate below
+// failed (nothing is registered, so there is nothing to play), or when the
+// launcher has muted (the SDK short-circuits before touching the
+// AudioContext). Never a throw — these are called from the game loop, the
+// input path and the move path.
 
 export function sfx(name, opts) {
+  if (!graphMode) return;
   const a = audio();
   if (a) a.play(name, opts);
 }
@@ -104,67 +102,52 @@ export function sfx(name, opts) {
 /** Rotation — the ratchet. `kind` picks the mechanism's size:
  *  'ring' (starflower, 6 tiles), 'y' (black pearl), 'cluster' (the default 3). */
 export function playRotate(kind) {
-  if (graphMode) sfx('rotate', { kind: kind || 'cluster' });
-  else sfx('rotate');
+  sfx('rotate', { kind: kind || 'cluster' });
 }
 
-/** Picking a cluster up. Graph path only — the chiptune profile has no cue for
- *  it, and a borrowed one at this rate would be a tick on every touch. */
+/** Picking a cluster up. */
 export function playSelect() {
-  if (graphMode) sfx('select');
+  sfx('select');
 }
 
 /** First clear of a cascade. `count` = tiles cleared, which scales the
  *  fracture: more shards, longer, deeper — a bigger break, not a louder one. */
 export function playMatch(count) {
-  if (graphMode) sfx('match', { count });
-  else sfx('match');
+  sfx('match', { count });
 }
 
-/** A chained cascade step. `depth` climbs the ladder — the graph cue pitches
- *  the glass ring and brightens the shards together; the chiptune cue keeps the
- *  archived per-play `freq` override (single-spec cues only — the SDK ignores
- *  overrides on array cues, which is why the archive's 'combo' is one voice). */
+/** A chained cascade step. `depth` climbs the ladder — the cue pitches the
+ *  glass ring and brightens the shards together. */
 export function playCombo(depth) {
-  if (graphMode) sfx('combo', { depth });
-  else sfx('combo', { freq: comboFreq(depth) });
+  sfx('combo', { depth });
 }
 
-/** Special formation. The graph path gives each its own material — chrome
- *  shimmer, obsidian weight, or both — where the archive has one shared cue. */
+/** Special formation. Each gets its own material — chrome shimmer, obsidian
+ *  weight, or both. An unknown type is silence, not a borrowed voice. */
 export function playSpecial(type) {
-  if (graphMode && (type === 'starflower' || type === 'blackpearl' || type === 'grandpoobah')) {
+  if (type === 'starflower' || type === 'blackpearl' || type === 'grandpoobah') {
     sfx(type);
-  } else {
-    sfx('special');
   }
 }
 
 /** A bomb arrives on the board. */
 export function playBombArrive() {
-  if (graphMode) sfx('bomb-arrive');
-  else sfx('bomb');
+  sfx('bomb-arrive');
 }
 
 /** The fuse clock, one per move while a bomb is live. `urgency` 0..1 tightens
- *  it. Graph path only: the archive has no tick, and repeating its 'bomb' cue
- *  every move would be far too heavy. */
+ *  it. */
 export function playBombTick(urgency) {
-  if (graphMode) sfx('bomb-tick', { urgency });
+  sfx('bomb-tick', { urgency });
 }
 
-/** Session end. On the graph path a real game over is the detonation and then,
- *  a beat later, the aftermath tolls — two events, because the explosion and
- *  the loss are not the same moment. A peaceful chill-session end is the tolls
- *  alone. The archive folds both into its single descending motif.
+/** Session end. A real game over is the detonation and then, a beat later,
+ *  the aftermath tolls — two events, because the explosion and the loss are
+ *  not the same moment. A peaceful chill-session end is the tolls alone.
  *
  *  The delayed second cue is fire-and-forget: if the player has muted or left
  *  in the meantime, `play()` is already a silent no-op. */
 export function playGameOver(isSessionEnd) {
-  if (!graphMode) {
-    sfx('game-over');
-    return;
-  }
   if (isSessionEnd) {
     sfx('game-over');
     return;
@@ -173,16 +156,14 @@ export function playGameOver(isSessionEnd) {
   setTimeout(() => sfx('game-over'), 800);
 }
 
-/** Over-achiever — the game's triumph condition. Graph path only: the archive
- *  never had a cue for it, and its descending game-over motif is exactly the
- *  wrong mood. Silence is the better loss. */
+/** Over-achiever — the game's triumph condition. */
 export function playOverAchiever() {
-  if (graphMode) sfx('over-achiever');
+  sfx('over-achiever');
 }
 
-/** Puzzle solved. Graph path only, for the same reason as above. */
+/** Puzzle solved. */
 export function playGameWin() {
-  if (graphMode) sfx('game-win');
+  sfx('game-win');
 }
 
 let pulseHandle = null;
@@ -192,7 +173,7 @@ let urgencyStep = 0;
 /** Start the ambient beds. Idempotent — safe to call from the input path on
  *  every interaction, which is also what satisfies the browser's autoplay
  *  policy (the first real user gesture is what unlocks the AudioContext).
- *  A silent no-op on the fallback path and whenever audio is unavailable; it
+ *  A silent no-op whenever the pack is unregistered or audio is unavailable; it
  *  must never throw, because the game loop and input handlers call it. */
 export function startBed(modeId) {
   if (pulseHandle) return;
@@ -263,82 +244,6 @@ function registerPack(a, p) {
   a.graph(TENSION_CUE, p.tension, { sustained: true, send: TENSION_SEND });
 }
 
-// ─── fallback: the archived chiptune profile ────────────────────────────────
-// Copied verbatim from this file at 9169f43, which froze the game's pre-graph
-// sound. Keep it in sync with that archive rather than editing it here — it is
-// what a player on a stale service-worker cache hears, and it was tuned as a
-// whole.
-//
-// Cue names the graph pack has that do not appear below: 'select', 'bomb-tick',
-// 'bomb-explode', 'over-achiever' and 'game-win'. Each is a deliberate silence
-// on this path rather than a borrowed voice — see the wrappers above for why.
-
-const COMBO_BASE_HZ = 440; // A4
-
-function registerChiptune(a) {
-  // Per-rotation press blip — one short tick per player rotation (not per step).
-  // Mechanical ratchet detent: a noise scrape under a square blip whose pitch
-  // drops across its 26ms, which reads as a click/thunk rather than a beep.
-  a.cue('rotate', [
-    { type: 'noise', dur: 0.018, gain: 0.09, attack: 0.001, release: 0.016, delay: 0 },
-    { type: 'square', freq: 380, toFreq: 300, dur: 0.026, gain: 0.10, attack: 0.001, release: 0.024, delay: 0 },
-  ]);
-
-  // A match group clears (first clear of a cascade). Struck glass: strike tick,
-  // C5 body, and the 3rd-harmonic shimmer on top, all decaying together. This
-  // fires constantly, so it is the loudness reference for the whole profile.
-  a.cue('match', [
-    { type: 'noise', dur: 0.015, gain: 0.05, attack: 0.001, release: 0.013, delay: 0 },
-    { type: 'triangle', freq: 523, dur: 0.14, gain: 0.24, attack: 0.002, release: 0.125, delay: 0 },
-    { type: 'sine', freq: 1568, dur: 0.10, gain: 0.07, attack: 0.002, release: 0.095, delay: 0 },
-  ]);
-
-  // Chained cascade step — freq is overridden per-play (comboFreq) to step the
-  // pitch up with chain depth. MUST stay a single spec object: Arcade.audio
-  // merges per-play overrides onto object cues only, and ignores them on arrays.
-  a.cue('combo', { type: 'triangle', freq: COMBO_BASE_HZ, dur: 0.11, gain: 0.26, attack: 0.002, release: 0.095 });
-
-  // Shared celebratory sparkle for special-piece formation (starflower / black
-  // pearl / grand poobah) — the same strike tick as `match`, then a crystalline
-  // sine arpeggio rolled at 50ms so the notes overlap into a ringing chord.
-  a.cue('special', [
-    { type: 'noise', dur: 0.012, gain: 0.05, attack: 0.001, release: 0.010, delay: 0 },
-    { type: 'sine', freq: 660, dur: 0.09, gain: 0.22, attack: 0.002, release: 0.08, delay: 0 },
-    { type: 'sine', freq: 990, dur: 0.09, gain: 0.22, attack: 0.002, release: 0.08, delay: 0.05 },
-    { type: 'sine', freq: 1320, dur: 0.16, gain: 0.20, attack: 0.002, release: 0.145, delay: 0.05 },
-  ]);
-
-  // A bomb is queued to appear on the board — the one destructive event, and the
-  // only place sawtooth survives: a noise rumble under a saw thud sagging
-  // 120→80Hz, deliberately unlike the glass everything else is made of.
-  a.cue('bomb', [
-    { type: 'noise', dur: 0.15, gain: 0.12, attack: 0.005, release: 0.13, delay: 0 },
-    { type: 'sawtooth', freq: 120, toFreq: 80, dur: 0.18, gain: 0.28, attack: 0.005, release: 0.15, delay: 0 },
-  ]);
-
-  // Game over / session end — descending three-voice motif, played back-to-back.
-  a.cue('game-over', [
-    { type: 'triangle', freq: 330, dur: 0.14, gain: 0.30, release: 0.05 },
-    { type: 'triangle', freq: 220, dur: 0.16, gain: 0.32, release: 0.06 },
-    { type: 'triangle', freq: 110, dur: 0.24, gain: 0.34, release: 0.14 },
-  ]);
-
-  // Soft UI tick for menu / button interactions — a tiny high glass "tink", and
-  // deliberately the quietest cue in the profile.
-  a.cue('ui-click', { type: 'triangle', freq: 880, dur: 0.025, gain: 0.10, attack: 0.001, release: 0.022 });
-}
-
-/**
- * Rising pitch for the chiptune 'combo' cue as chain depth increases.
- * Semitone-ish steps off A4, capped so deep cascades stay inside the
- * audible/legal freq range. Graph path does its own laddering in the pack.
- * @param {number} depth — chain level (1, 2, 3, …)
- */
-export function comboFreq(depth) {
-  const steps = Math.min(Math.max(depth, 0), 15);
-  return Math.round(COMBO_BASE_HZ * Math.pow(2, steps / 12));
-}
-
 /**
  * Play a soft 'ui-click' on menu / button interactions. Uses one delegated
  * capture-phase listener so it fires even for handlers that stopPropagation,
@@ -364,8 +269,8 @@ export function wireUiClicks() {
 
 // The gestures and APIs the pack is built out of. A cached older SDK or element
 // library has `graph()` and `el()` but not these, and a missing element would
-// throw inside a cue at play time — a cue that half-plays is worse than the
-// fallback profile, so the whole graph path is gated on the pack's actual
+// throw inside a cue at play time — a cue that half-plays is worse than
+// silence, so the whole registration is gated on the pack's actual
 // dependencies rather than on a version number.
 const NEEDED_ELEMENTS = [
   'strike', 'body', 'thump', 'flare', 'blast',
@@ -389,9 +294,8 @@ const NEEDED_ELEMENTS = [
   if (graphable) {
     registerPack(a, p);
     graphMode = true;
-  } else {
-    // Stale cached SDK, or standalone without /arcade-audio.js. Expected, not
-    // a bug — no console noise.
-    registerChiptune(a);
   }
+  // else: stale cached SDK, or standalone without /arcade-audio.js. Nothing
+  // is registered and the game plays silent — expected and deliberate, not a
+  // bug, so no console noise. The wrappers above all no-op off `graphMode`.
 })();
