@@ -1,85 +1,28 @@
-name: Deploy to GitHub Pages (Prod)
+# Thin caller for the fleet CI/CD standard. The pipeline lives in the
+# launcher repo (fleet-ci.yml); change it there and every app follows.
+# See GAME_INTEGRATION.md §13a.
+name: CI & Deploy Pages
 
 on:
   push:
-    branches: ["main"]
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: write # version_bump pushes the bump commit back to main
   pages: write
   id-token: write
 
+# Per-ref, so a PR run never cancels main's deploy.
 concurrency:
-  group: "pages"
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Run tests
-        run: node --test 'tests/*.test.js'
-
-  deploy:
-    needs: test
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Bump patch version
-        id: bump
-        run: |
-          # Read current version from package.json
-          CURRENT=$(node -p "require('./package.json').version")
-          # Bump patch (1.2.0 → 1.2.1)
-          NEW=$(node -e "
-            const [maj,min,pat] = '$CURRENT'.split('.').map(Number);
-            console.log(maj+'.'+min+'.'+(pat+1));
-          ")
-          echo "new_version=$NEW" >> $GITHUB_OUTPUT
-          # Update package.json
-          node -e "
-            const fs = require('fs');
-            const p = JSON.parse(fs.readFileSync('package.json'));
-            p.version = '$NEW';
-            fs.writeFileSync('package.json', JSON.stringify(p, null, 2)+'\n');
-          "
-          # Update manifest.json start_url
-          node -e "
-            const fs = require('fs');
-            const m = JSON.parse(fs.readFileSync('manifest.json'));
-            m.start_url = './index.html?v=$NEW';
-            fs.writeFileSync('manifest.json', JSON.stringify(m, null, 2)+'\n');
-          "
-          # Update version display in index.html
-          sed -i "s/v[0-9]\+\.[0-9]\+\.[0-9]\+/v$NEW/g" index.html
-          echo "Bumped $CURRENT → $NEW"
-
-      - name: Commit version bump
-        run: |
-          git config user.name "geebs-bot[bot]"
-          git config user.email "geebs-bot[bot]@users.noreply.github.com"
-          git add package.json manifest.json index.html
-          git diff --cached --quiet || git commit -m "chore: auto-bump to v${{ steps.bump.outputs.new_version }} [skip ci]"
-          git push
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: '.'
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+  fleet:
+    uses: paulgibeault/paulgibeault.github.io/.github/workflows/fleet-ci.yml@main
+    with:
+      # This app cache-busts its PWA via a deploy-time patch bump
+      # (package.json, manifest start_url, index.html badge).
+      version_bump: true
