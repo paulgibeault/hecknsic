@@ -98,6 +98,11 @@ export function resize(canvas) {
   // Include boardScale in the transform so all drawing uses logical coordinates.
   // Input coords must be divided by boardScale to convert back to logical space.
   ctx.setTransform(dpr * boardScale, 0, 0, dpr * boardScale, 0, 0);
+  // Assigning canvas.width/height wipes the backing store. gameLoop only draws
+  // when something asks it to, so an idle board (no tweens, no animations)
+  // would stay blank until the next input — mark dirty so the next frame
+  // repaints. Same reason setActiveGridSize() ends with this call.
+  requestRedraw();
 }
 
 function recalcOrigin() {
