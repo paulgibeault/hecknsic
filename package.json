@@ -1,6 +1,6 @@
 {
   "name": "hecknsic",
-  "version": "1.2.26",
+  "version": "1.2.27",
   "private": true,
   "engines": {
     "node": ">=24"
