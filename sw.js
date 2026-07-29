@@ -1,5 +1,5 @@
 // Hecknsic Service Worker — offline-first cache
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.5.1';
 const CACHE_VERSION = `hecknsic-v${APP_VERSION}`;
 
 // WARNING: This list is manually maintained. When adding new static assets
