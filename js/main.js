@@ -106,7 +106,6 @@ let selectedCluster = null;
 let flowerCenter = null;     // {col,row} if a starflower ring is selected
 let pearlCenter = null;      // {col,row} if a black pearl Y-shape is selected
 let lastTime = 0;
-let rafId = null;
 let moveCount = 0;           // total player moves (for bomb spawn timing)
 let bombQueued = false;
 let boardGeneration = 0;  // incremented on grid replacement; stale async chains bail out
@@ -134,13 +133,13 @@ initInput(canvas);
 // dt doesn't jump after a long suspension.
 if (typeof window !== 'undefined' && window.Arcade) {
   Arcade.onSuspend(() => {
+    // Arcade.loop parks itself on suspend; this only records intent.
     isPaused = true;
-    if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
   });
   Arcade.onResume(() => {
     isPaused = false;
     lastTime = performance.now();
-    rafId = requestAnimationFrame(gameLoop);
+    gameFrameLoop.start();
   });
 
   // After the launcher imports a save, every persisted key the game reads at
@@ -607,15 +606,20 @@ if (savedState) {
   state = 'idle';
 }
 
-rafId = requestAnimationFrame(gameLoop);
+// The SDK owns the frame loop. Arcade.loop cancels on suspend and re-arms on
+// resume, and start() is idempotent — it can never stack a second concurrent
+// loop, which is what the restart path used to do.
+const gameFrameLoop = Arcade.loop(gameLoop);
+gameFrameLoop.start();
 
 // ─── Game loop ──────────────────────────────────────────────────
 
-function gameLoop(timestamp) {
-  if (isPaused) {
-    rafId = requestAnimationFrame(gameLoop);
-    return;
-  }
+// Arcade.loop passes (deltaMs, timestamp); the local dt is kept because it
+// carries this game's own 16 ms first-frame default.
+function gameLoop(_deltaMs, timestamp) {
+  // Paused means paused: park the loop rather than burning a frame slot each
+  // tick to do nothing. onResume/restart start() it again.
+  if (isPaused) { gameFrameLoop.stop(); return; }
 
   const dt = lastTime ? timestamp - lastTime : 16;
   lastTime = timestamp;
@@ -633,7 +637,6 @@ function gameLoop(timestamp) {
     // drawGameOver(); // Handled by DOM overlay now
     
     updateGameHUD();
-    rafId = requestAnimationFrame(gameLoop);
     return;
   }
 
@@ -685,8 +688,6 @@ function gameLoop(timestamp) {
 
   updateControlsVisibility();
   updateGameHUD();
-
-  rafId = requestAnimationFrame(gameLoop);
 }
 
 /**
@@ -1118,7 +1119,11 @@ function resetGame() {
   // Ensure we are unpaused and running
   isPaused = false;
   lastTime = performance.now();
-  rafId = requestAnimationFrame(gameLoop); // Might already be running, but safe to ensure
+  // This line used to read "might already be running, but safe to ensure" and
+  // raw requestAnimationFrame made that false: restarting a live game stacked
+  // a second loop and orphaned the first, so tweens ran at 2x and the board
+  // drew twice per frame, permanently. loop.start() is genuinely idempotent.
+  gameFrameLoop.start();
 }
 
 function saveGame() {
