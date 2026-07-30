@@ -9,18 +9,20 @@
 
 import { PIECE_COLORS, GRID_COLS, GRID_ROWS } from './constants.js';
 import { getPuzzleProgress, savePuzzleProgress } from './storage.js';
+import { makeRng } from './arcade-rng.js';
 
-// ─── Seeded RNG (mulberry32) ────────────────────────────────────
+// ─── Seeded RNG ─────────────────────────────────────────────────
+// The generator rides the fleet's shared rng companion (js/arcade-rng.js,
+// vendored byte-identical copy of the launcher's /arcade-rng.js) — streams
+// are bit-identical to the old inline mulberry32 for the u32 seeds
+// hashString produces, so every already-shipped daily reproduces exactly.
 
-function mulberry32(seed) {
-  return function () {
-    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
-    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
-    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
-    return ((t ^ t >>> 14) >>> 0) / 4294967296;
-  };
-}
-
+// DELIBERATELY NOT the companion's hashU32: this multiply is a plain float
+// multiply (lossy above 2^53), so for multi-character strings it diverges
+// from true FNV-1a — and its outputs ARE the daily-puzzle contract across
+// every shipped version of this game. Stale service-worker caches keep old
+// versions live for a while after any deploy; "fixing" this to hashU32 would
+// hand players on different versions different puzzles for the same date.
 function hashString(str) {
   let h = 0x811c9dc5;
   for (let i = 0; i < str.length; i++) {
@@ -72,7 +74,7 @@ const WEEKLY_GOAL_CYCLE = [
  */
 export function generateDailyPuzzle(dateStr) {
   const seed = hashString(dateStr);
-  const rng  = mulberry32(seed);
+  const rng  = makeRng(seed);
 
   // Board size based on day-of-month thirds
   const dayOfMonth = parseInt(dateStr.slice(8));

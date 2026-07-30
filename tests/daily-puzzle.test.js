@@ -32,6 +32,18 @@ test('generateDailyPuzzle: produces valid puzzle shape', () => {
   assert.ok(p.board);
 });
 
+test('generateDailyPuzzle: matches the pinned known-answer board', () => {
+  // Pins the ALGORITHM across refactors: the rng now rides the vendored fleet
+  // companion (js/arcade-rng.js) and hashString is deliberately local (see
+  // its comment) — this exact prefix is what the pre-migration inline
+  // mulberry32 generated for this date. If either drifts, players on
+  // different versions get different dailies for the same date; this fails
+  // instead.
+  const p = generateDailyPuzzle('2026-04-01');
+  assert.ok(p.board.startsWith('0:0:1 0:1:2 0:2:0 0:3:1 0:4:2 0:5:0 0:6:2 1:0:0 1:1:1 1:2:2'),
+    `board drifted: ${p.board.slice(0, 60)}`);
+});
+
 test('generateDailyPuzzle: same date always produces same board', () => {
   const a = generateDailyPuzzle('2026-04-01');
   const b = generateDailyPuzzle('2026-04-01');
