@@ -12,8 +12,30 @@ import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { injectPrecache } from "./inject-precache.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+// Published, deliberately not precached. This is the only knob on the
+// generated list (tools/inject-precache.mjs), and it is reviewed rather than
+// silent: tools/verify-artifact.mjs fails the build on any published file that
+// is neither cached nor named here.
+//
+// The audition diagnostic and its config, the frozen chiptune archive kept as
+// provenance, a prose blob nothing fetches, and the licence text.
+//
+// js/animations.js and js/arcade-rng.js are deliberately NOT here: both are
+// imported by the game at runtime and were simply missing from the old
+// hand-kept list, so the daily puzzle broke offline. Generating the list is
+// what surfaced that.
+export const PRECACHE_EXCLUDE = [
+  "audio/audition.js",
+  "audio/chiptune-archive.mjs",
+  "soundpack.config.json",
+  "js/additional-description",
+  "LICENSE",
+];
+
 
 // Dev-only: tooling, tests, notes, and local helpers. Everything else a repo
 // tracks is game content and ships.
@@ -42,6 +64,9 @@ export function stage(outDir) {
     fs.copyFileSync(path.join(ROOT, f), path.join(outDir, f));
     staged++;
   }
+  // Last, so it sees the finished artifact — the precache list is written from
+  // what is actually about to deploy, not from what anyone believes is.
+  injectPrecache(outDir, { exclude: PRECACHE_EXCLUDE });
   return { outDir, staged, total: files.length };
 }
 

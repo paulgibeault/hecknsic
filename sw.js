@@ -2,7 +2,7 @@
  *
  * CANONICAL FLEET SHAPE. The structure here — version line, owned-prefix
  * cleanup, cache-first fetch, skip-waiting message — is meant to be identical
- * across every arcade app; only APP_VERSION, CACHE_PREFIX and PRECACHE differ.
+ * across every arcade app; only APP_VERSION, CACHE_PREFIX and ASSETS differ.
  * Fix a bug here and it has to be carried everywhere, the same rule as
  * tools/verify-artifact.mjs.
  */
@@ -26,37 +26,30 @@ const CACHE_VERSION = `${CACHE_PREFIX}v${APP_VERSION}`;
 // WARNING: This list is manually maintained. When adding new static assets
 // (JS files, CSS files, images, sounds, etc.), update this list too or
 // offline mode will silently break for those assets.
-const PRECACHE = [
+// Everything this game needs to boot offline — GENERATED, not maintained.
+// tools/stage.mjs rewrites the region below from the files the deploy actually
+// publishes (tools/inject-precache.mjs), so the list cannot drift from the
+// artifact and a content-hashed bundle name needs no hand edit. To leave a
+// file out, name it in PRECACHE_EXCLUDE in tools/stage.mjs — never here.
+//
+// What is checked in is a placeholder: service workers are off on loopback, so
+// a dev checkout never reads it.
+// arcade:precache-begin
+const ASSETS = [
   './',
   './index.html',
-  './manifest.json',
-  './css/style.css',
-  './css/overlays.css',
-  './js/audio.js',
-  './js/board.js',
-  './js/constants.js',
-  './js/daily-puzzle.js',
-  './js/hex-math.js',
-  './js/input.js',
-  './js/main.js',
-  './js/modes.js',
-  './js/puzzle-editor.js',
-  './js/puzzle-mode.js',
-  './js/puzzles.js',
-  './js/renderer.js',
-  './js/score.js',
-  './js/soundpack.js',
-  './js/specials.js',
-  './js/storage.js',
-  './js/tween.js',
-  './img/logo_header.png',
-  './img/icon-192.png',
-  './img/icon-512.png',
 ];
+// arcade:precache-end
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_VERSION).then((cache) => cache.addAll(PRECACHE))
+    caches.open(CACHE_VERSION).then(cache => Promise.all(
+      // Per-asset add(), not addAll(). addAll() rejects the WHOLE install on a
+      // single 404, so one missing file costs a returning player their entire
+      // offline shell — silently. A gap should cost one file and a log line.
+      ASSETS.map(asset => cache.add(asset).catch(err =>
+        console.warn('[sw] precache skipped', asset, err && err.message)))
+    ))
   );
   // Deliberately NOT skipWaiting(). The new worker installs and waits; the
   // launcher spots it and offers the player an explicit "update ready" reload,
@@ -120,7 +113,7 @@ self.addEventListener('fetch', (event) => {
   }
 
   event.respondWith(
-    caches.match(event.request).then((cached) => {
+    caches.match(event.request, { ignoreSearch: true }).then((cached) => {
       if (cached) return cached;
       return fetch(event.request).then((response) => {
         if (!response || response.status !== 200 || response.type === 'opaque') {

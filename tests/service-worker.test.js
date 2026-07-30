@@ -35,16 +35,21 @@ const SW_SRC = readFileSync(join(ROOT, 'sw.js'), 'utf8');
 const PKG = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')); // used for realistic cache keys
 
 /** Evaluate sw.js against a fake global scope and return the handles. */
-function loadWorker({ cacheKeys = [] } = {}) {
+function loadWorker({ cacheKeys = [], failAdd = null } = {}) {
   const deleted = [];
   const handlers = {};
-  const calls = { skipWaiting: 0, claim: 0, addAll: null };
+  const calls = { skipWaiting: 0, claim: 0, added: [] };
 
   const caches = {
     keys: async () => cacheKeys.slice(),
     delete: async (k) => { deleted.push(k); return true; },
     open: async () => ({
-      addAll: async (list) => { calls.addAll = list; },
+      // Per-asset add(), matching the shared template. `failAdd` makes one
+      // entry 404 so a test can prove the rest still cache.
+      add: async (asset) => {
+        if (asset === failAdd) throw new Error('404');
+        calls.added.push(asset);
+      },
       put: async () => {},
     }),
     match: async () => undefined,
@@ -132,15 +137,29 @@ test('install precaches and does NOT skipWaiting', async () => {
   const w = loadWorker();
   await w.fire('install');
 
-  assert.ok(w.calls.addAll && w.calls.addAll.length > 0, 'install should precache assets');
-  assert.ok(
-    w.calls.addAll.includes('./index.html') && w.calls.addAll.includes('./js/renderer.js'),
-    'the precache list should cover the app shell and its JS');
+  assert.ok(w.calls.added.length > 0, 'install should precache assets');
+  // Only the shell is asserted here. WHAT gets precached is no longer written
+  // in this file — tools/stage.mjs generates the list from the deploy artifact,
+  // so the checked-in array is a placeholder and this test would be asserting
+  // a fixture. Coverage of the real list lives in tools/verify-artifact.mjs,
+  // which fails on any published file the worker does not cache.
+  assert.ok(w.calls.added.includes('./index.html'),
+    'the app shell should always be precached');
   assert.strictEqual(
     w.calls.skipWaiting, 0,
     'install must not skipWaiting — the launcher\'s update prompt depends on ' +
     'the new worker waiting, and activating unannounced swaps the cache under ' +
     'a running game');
+});
+
+test('one missing asset does not cost the player the whole offline shell', async () => {
+  // The reason install() uses per-asset add() rather than addAll(): addAll()
+  // rejects entirely on a single 404, so one unpublished file silently leaves
+  // a returning player with no cache at all. A gap should cost one file.
+  const w = loadWorker({ failAdd: './index.html' });
+  await w.fire('install');
+  assert.ok(w.calls.added.length > 0,
+    'the surviving assets should still be cached when one entry 404s');
 });
 
 test('the launcher can activate a waiting worker on demand', async () => {
