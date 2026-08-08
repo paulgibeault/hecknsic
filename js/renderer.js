@@ -13,6 +13,8 @@ import {
 } from './constants.js';
 import { hexToPixel, hexCorners } from './hex-math.js';
 import { getComboCount, getChainLevel } from './score.js';
+import { isPowerSaving, onPowerSaverChange } from './power.js';
+import { wakeFrameLoop } from './frame.js';
 // ─── Module state ───────────────────────────────────────────────
 let ctx;
 let canvasW, canvasH;   // physical CSS pixel dimensions
@@ -22,7 +24,9 @@ let activeGridCols = GRID_COLS;  // current grid dimensions (may differ for puzz
 let activeGridRows = GRID_ROWS;
 
 let isDirty = true;
-export function requestRedraw() { isDirty = true; }
+// The dirty flag and the loop's wake-up are one gesture: a board that is
+// dirty while the loop is parked (§6d) would just sit there unpainted.
+export function requestRedraw() { isDirty = true; wakeFrameLoop(); }
 export function clearDirty() { isDirty = false; }
 export function getIsDirty() { return isDirty; }
 
@@ -200,8 +204,24 @@ export function removeFloatingPiece(piece) {
 }
 
 // ─── Creation Particle API ──────────────────────────────────────
+//
+// Everything below the "decorative" line — particles, ring shockwaves, the
+// full-screen colour wash — is celebration. It says nothing the board does not
+// already say: the match happened, the tiles are gone, the score went up. So
+// under power saver (GAME_INTEGRATION §5 / §6d) it is gated off entirely, and
+// the frames it would have kept alive never get scheduled.
+//
+// Score popups and the combo label are NOT gated: they carry the only readout
+// of how many points a match was worth and what tier the cascade reached.
+// Dropping them would drop information, which is a different thing from
+// dropping decoration.
+//
+// A live effect started before the toggle is dropped too (see the subscription
+// at the bottom of this section) — otherwise turning power saver on mid-cascade
+// buys the player nothing until the current burst finishes.
 
 export function spawnCreationParticles(cx, cy, count = 16) {
+  if (isPowerSaving()) return;
   for (let i = 0; i < count; i++) {
     const angle = (Math.PI * 2 / count) * i + (Math.random() - 0.5) * 0.4;
     const speed = 1.5 + Math.random() * 2.5;
@@ -231,6 +251,7 @@ export function clearCreationParticles() {
  * @param {number} count
  */
 export function spawnColorNukeParticles(cx, cy, colorIndex, count = 40) {
+  if (isPowerSaving()) return;
   const color = PIECE_COLORS[colorIndex];
   // Convert hex color to approximate hue for particle system
   const hueMap = [0, 30, 210, 130, 280]; // red, orange, blue, green, purple
@@ -254,6 +275,7 @@ export function spawnColorNukeParticles(cx, cy, colorIndex, count = 40) {
  * Hot white-to-orange burst — used for mixed-color Explosion.
  */
 export function spawnExplosionParticles(cx, cy, count = 60) {
+  if (isPowerSaving()) return;
   for (let i = 0; i < count; i++) {
     const angle = (Math.PI * 2 / count) * i + (Math.random() - 0.5) * 0.5;
     const speed = 4 + Math.random() * 6;
@@ -280,8 +302,9 @@ export function spawnExplosionParticles(cx, cy, count = 60) {
  * @param {number} bb - blue 0-255
  */
 export function spawnRingShockwave(cx, cy, maxRadius, rr, gg, bb) {
+  if (isPowerSaving()) return;
   shockwaves.push({ x: cx, y: cy, r: 0, maxR: maxRadius, life: 1.0, maxLife: 40, rr, gg, bb });
-  isDirty = true;
+  requestRedraw();
 }
 
 /**
@@ -293,9 +316,22 @@ export function spawnRingShockwave(cx, cy, maxRadius, rr, gg, bb) {
  * @param {number} maxLife - lifetime in draw frames (approx 60fps)
  */
 export function flashScreenOverlay(rr, gg, bb, peakAlpha = 0.25, maxLife = 30) {
+  if (isPowerSaving()) return;
   screenOverlay = { rr, gg, bb, alpha: peakAlpha, life: 1.0, maxLife };
-  isDirty = true;
+  requestRedraw();
 }
+
+// Turning the lever on mid-burst drops what is already in flight. The board
+// itself is untouched — only the confetti over it goes away — so there is no
+// state to lose. One last redraw paints the frame without them; after that
+// hasActiveRendererAnimations() is false and the loop is free to park.
+onPowerSaverChange((saving) => {
+  if (!saving) return;
+  creationParticles = [];
+  shockwaves = [];
+  screenOverlay = null;
+  requestRedraw();
+});
 
 // ─── Main draw ──────────────────────────────────────────────────
 
