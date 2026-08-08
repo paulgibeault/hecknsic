@@ -37,8 +37,9 @@ import {
 import { hexToPixel, getNeighbors, pixelToHex, findClusterAtPixel } from './hex-math.js';
 import {
   initInput, getHoverCluster, consumeAction, getLastClickPos, triggerAction,
-  setKeyBindings, clearPendingAction, setClusterCenterPx,
+  setKeyBindings, clearPendingAction, setClusterCenterPx, hasPendingAction,
 } from './input.js';
+import { registerFrameLoop, wakeFrameLoop } from './frame.js';
 
 import {
   animateClusterRotation, animateRingRotation, animateYRotation,
@@ -115,6 +116,22 @@ let boardGeneration = 0;  // incremented on grid replacement; stale async chains
 /** True while the board is mid-animation (rotating, cascading). UI should not restart. */
 export function isProcessing() {
   return state === 'rotating' || state === 'cascading';
+}
+
+/**
+ * Come back from a modal. Every close handler goes through here.
+ *
+ * Clearing isPaused is not enough on its own: a paused frame parks the loop,
+ * and a parked loop does not restart just because a flag flipped. That was
+ * already true before §6d — closing help or high-scores left the board frozen
+ * until the next resize or suspend/resume — and the more the loop parks, the
+ * more that bites. Resetting lastTime keeps the score counter from seeing the
+ * whole time the modal was open as one delta.
+ */
+function resumeFromPause() {
+  isPaused = false;
+  lastTime = 0;
+  wakeFrameLoop();
 }
 
 // DEBUG: Expose internals
@@ -245,10 +262,8 @@ document.getElementById('btn-help').addEventListener('click', (e) => {
 });
 document.getElementById('btn-close-help').addEventListener('click', (e) => {
   e.stopPropagation();
-  isPaused = false;
   document.getElementById('modal-help').classList.add('hidden');
-  // Reset lastTime to avoid huge dt jump
-  lastTime = performance.now();
+  resumeFromPause();
 });
 
 // Scores Modal bindings
@@ -260,9 +275,8 @@ document.getElementById('btn-scores').addEventListener('click', (e) => {
 });
 document.getElementById('btn-close-scores').addEventListener('click', (e) => {
   e.stopPropagation();
-  isPaused = false;
   document.getElementById('modal-scores').classList.add('hidden');
-  lastTime = performance.now();
+  resumeFromPause();
 });
 
 // Shared guard: shake a button and bail if board is mid-animation.
@@ -331,10 +345,9 @@ document.getElementById('dropdown-btn-settings').addEventListener('click', (e) =
 });
 document.getElementById('btn-close-settings').addEventListener('click', (e) => {
   e.stopPropagation();
-  isPaused = false;
   document.getElementById('modal-settings').classList.add('hidden');
   saveSettings(settings); // Persist updated bindings
-  lastTime = performance.now();
+  resumeFromPause();
   requestRedraw();
 });
 
@@ -381,7 +394,7 @@ document.getElementById('dropdown-btn-end-session').addEventListener('click', (e
 document.getElementById('btn-cancel-end').addEventListener('click', (e) => {
   e.stopPropagation();
   endSessionModal.classList.add('hidden');
-  isPaused = false;
+  resumeFromPause();
   requestRedraw();
   // allow board interactions again
 });
@@ -393,7 +406,7 @@ document.getElementById('btn-continue-gamewin').addEventListener('click', (e) =>
   setNameFromInput('gw-name');
   document.getElementById('modal-gamewin').classList.add('hidden');
   state = 'idle';
-  isPaused = false;
+  resumeFromPause();
   requestRedraw();
 });
 
@@ -418,7 +431,7 @@ document.getElementById('btn-confirm-end').addEventListener('click', (e) => {
   // Commit the chill-session score before the explosion sequence resets state.
   commitScoreFromInput('es-name');
   endSessionModal.classList.add('hidden');
-  isPaused = false; // Must unpause so the tween game-loop can tick!
+  resumeFromPause(); // Must unpause so the tween game-loop can tick!
   requestRedraw();
 
   // End session logic: trigger explosion sequence
@@ -610,16 +623,52 @@ if (savedState) {
 // resume, and start() is idempotent — it can never stack a second concurrent
 // loop, which is what the restart path used to do.
 const gameFrameLoop = Arcade.loop(gameLoop);
+// Hand the loop to the wake seam so renderer.requestRedraw() and tween() can
+// restart it after it parks. The gate keeps a stray redraw from reviving the
+// loop behind an open modal — that is a deliberate park, not an idle one.
+registerFrameLoop(gameFrameLoop, () => !isPaused);
 gameFrameLoop.start();
 
 // ─── Game loop ──────────────────────────────────────────────────
+
+/**
+ * GAME_INTEGRATION §6d — is there any reason for another frame?
+ *
+ * Dirty-checking the *draw* was never enough: an rAF callback that decides not
+ * to paint is still an rAF callback, so the main thread woke 60x a second on a
+ * settled board and the display pipeline never reached 0 fps. This is the
+ * condition that lets the loop stop entirely.
+ *
+ * isProcessing() ('rotating' / 'cascading') is in here as a deliberate blanket:
+ * those states are driven by async chains that await sleeps between tweens, so
+ * there are moments mid-cascade with nothing dirty and no tween live. Staying
+ * awake through them is a handful of frames during motion the player asked
+ * for, and it means no cascade can strand itself waiting on a parked loop.
+ */
+function nothingLeftToDo() {
+  return !isProcessing()
+    && !getIsDirty()
+    && !hasActiveTweens()
+    && !hasActiveRendererAnimations()
+    && !isScoreAnimating()
+    && !hasPendingAction();
+}
+
+/** Park until something wakes us. */
+function parkFrameLoop() {
+  gameFrameLoop.stop();
+  // The next frame is a fresh start, however long from now that is — leaving
+  // the old timestamp here would hand updateDisplayScore a dt of "however long
+  // the player stared at the board".
+  lastTime = 0;
+}
 
 // Arcade.loop passes (deltaMs, timestamp); the local dt is kept because it
 // carries this game's own 16 ms first-frame default.
 function gameLoop(_deltaMs, timestamp) {
   // Paused means paused: park the loop rather than burning a frame slot each
   // tick to do nothing. onResume/restart start() it again.
-  if (isPaused) { gameFrameLoop.stop(); return; }
+  if (isPaused) { parkFrameLoop(); return; }
 
   const dt = lastTime ? timestamp - lastTime : 16;
   lastTime = timestamp;
@@ -629,14 +678,25 @@ function gameLoop(_deltaMs, timestamp) {
 
   // Game over: just render, no input
   if (state === 'gameover') {
+    // Drain rather than ignore. This branch returns before the consume block,
+    // so a stray keypress behind the game-over modal would sit in the queue
+    // forever — and a queued gesture is one of the reasons the loop refuses to
+    // park, which would leave the longest idle screen in the game running at
+    // full frame rate. It could never be acted on here anyway.
+    clearPendingAction();
+
     const needsDraw = getIsDirty() || hasActiveTweens() || hasActiveRendererAnimations() || isScoreAnimating();
     if (needsDraw) {
       drawFrame(grid, null, null);
       clearDirty();
     }
     // drawGameOver(); // Handled by DOM overlay now
-    
+
     updateGameHUD();
+    // Game over is the longest-lived idle screen there is — the modal sits
+    // there while the player types a name. Once the score counter has caught
+    // up, stop.
+    if (nothingLeftToDo()) parkFrameLoop();
     return;
   }
 
@@ -688,6 +748,10 @@ function gameLoop(_deltaMs, timestamp) {
 
   updateControlsVisibility();
   updateGameHUD();
+
+  // Settled board, no pending gesture, nothing animating: 0 fps until the
+  // player does something. requestRedraw() / tween() bring us back.
+  if (nothingLeftToDo()) parkFrameLoop();
 }
 
 /**

@@ -7,6 +7,8 @@
  *   t.cancel()  – stop early
  */
 
+import { wakeFrameLoop } from './frame.js';
+
 const active = [];
 
 export function tween(durationMs, onUpdate, easing = easeOutCubic) {
@@ -15,6 +17,11 @@ export function tween(durationMs, onUpdate, easing = easeOutCubic) {
   const reducedMotion = typeof Arcade !== 'undefined' && Arcade.settings.reducedMotion();
   const entry = { start: -1, duration: reducedMotion ? 0 : durationMs, onUpdate, easing, resolve, cancelled: false };
   active.push(entry);
+  // updateTweens only runs from the game loop, and the loop parks itself when
+  // the board settles (§6d). A tween started from a parked state would never
+  // advance and its promise would never resolve — which, since the cascade
+  // chains await these, means a hung board. Wake it here.
+  wakeFrameLoop();
   return {
     promise,
     cancel() { entry.cancelled = true; },

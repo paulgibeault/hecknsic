@@ -20,6 +20,11 @@ Hecknsic is a captivating puzzle game designed for modern web platforms, inspire
 - **Responsive Design**: Playable on desktop and mobile devices.
 - **Dark Theme Only**: The board is styled dark-only and does not respond to
   a host platform's light theme setting.
+- **Rests When You Do**: A settled board draws no frames at all — the render
+  loop parks itself and the display pipeline goes to 0 fps until you move.
+  With the arcade launcher's **Power Saver** on, the celebratory extras
+  (particles, shockwaves, screen flashes) are dropped as well. The board, the
+  score readouts, and every piece of gameplay motion stay exactly as they are.
 
 ## How to Play
 

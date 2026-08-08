@@ -34,6 +34,13 @@ export function consumeAction() {
 }
 
 /**
+ * Is a gesture still queued? 'rotating' and 'cascading' deliberately do not
+ * consume input, so an action can outlive the frame it arrived on — and the
+ * loop must not park while one is waiting to be answered (§6d).
+ */
+export function hasPendingAction() { return pendingAction !== null; }
+
+/**
  * Trigger an action programmatically (e.g. from UI buttons).
  */
 export function triggerAction(type) {
