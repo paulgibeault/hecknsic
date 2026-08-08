@@ -16,7 +16,7 @@
 // Tracks the app version now, so it moves on every deploy. The old private
 // 1.5.x counter is abandoned deliberately: only string inequality matters for
 // cache identity, so going "backwards" to 1.2.x still invalidates correctly.
-const APP_VERSION = '1.2.30';
+const APP_VERSION = '1.2.31';
 
 // Every cache this game has ever owned starts with this prefix. Cleanup is
 // filtered to it — see the activate handler for why that is not optional.
