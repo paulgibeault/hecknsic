@@ -10,8 +10,11 @@
  *   - the decorative/informational split, so a later "just add a sparkle"
  *     lands on the gated side by default;
  *   - the wake seam, because a loop that parks and never comes back is a much
- *     worse bug than a loop that never parks;
- *   - the no-infinite-animations gate over the stylesheets.
+ *     worse bug than a loop that never parks.
+ *
+ * The no-infinite-animations gate over the stylesheets used to be the third
+ * job here. It moved to the launcher's fleet-wide contract gate — see the note
+ * at the foot of this file.
  *
  * The guarded read against a pre-3.13 SDK is its own file, because it needs a
  * different Arcade installed before the module graph is evaluated and node
@@ -23,10 +26,6 @@
  */
 import test from 'node:test';
 import assert from 'node:assert';
-import fs from 'node:fs';
-import path from 'node:path';
-import { execSync } from 'node:child_process';
-import { ROOT } from '../tools/stage.mjs';
 import { installArcade } from './helpers/fake-arcade.mjs';
 
 const launcher = installArcade({ powerSaver: false });
@@ -125,25 +124,17 @@ test('a parked loop is woken by a redraw request and by a new tween', () => {
   assert.strictEqual(starts, 2, 'the gate must hold the loop parked while paused');
 });
 
-test('no infinite CSS animation ships — §6d, "let the screen rest"', () => {
-  const tracked = execSync('git ls-files -z', { cwd: ROOT, encoding: 'utf8' })
-    .split('\0').filter(Boolean)
-    .filter((f) => /\.(css|html)$/.test(f));
-  assert.ok(tracked.length > 0, 'precondition: found stylesheets to check');
-
-  const offenders = [];
-  for (const f of tracked) {
-    const src = fs.readFileSync(path.join(ROOT, f), 'utf8');
-    src.split('\n').forEach((line, i) => {
-      // Either spelling: the shorthand's keyword, or the longhand property.
-      if (/animation(-iteration-count)?\s*:[^;}]*\binfinite\b/.test(line)) {
-        offenders.push(`${f}:${i + 1}: ${line.trim()}`);
-      }
-    });
-  }
-  assert.deepStrictEqual(offenders, [],
-    'An infinite animation is a rAF loop that never stops, written declaratively — ' +
-    'a visible-but-idle game can never reach 0 fps while one runs. Pulse finitely ' +
-    'with `animation-iteration-count: var(--arcade-pulse-count, 3)` and settle to a ' +
-    'static resting treatment that still reads.');
-});
+// The §6d no-infinite-animation scan over the stylesheets used to close this
+// file. It is the launcher's job now: tools/contract-gates.mjs runs against
+// every fleet-ci caller, so this repo is still held to the rule — from the one
+// place the fleet CI/CD standard says drift gates live, rather than from a copy
+// here that only this repo benefits from.
+//
+// The fleet version is strictly stronger. This scan was line-based, so it could
+// not see an `infinite` inside a multi-line `animation:` shorthand; the fleet
+// gate reads whole files. It also adds the two gates this repo never had: every
+// declared iteration count must ride --arcade-pulse-count (per comma-separated
+// value), and every Arcade.settings.powerSaver() read must be guarded.
+//
+// What stays here is what no fleet-level static gate can cover: this game's own
+// behaviour — the decorative/informational split and the wake seam above.
