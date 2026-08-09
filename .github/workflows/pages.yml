@@ -26,7 +26,6 @@ jobs:
       # Pins the SECOND half. Without it the run takes the branch's YAML
       # and main's scripts, which is how this canary failed twice.
       toolchain_ref: ci/pipeline-hardening
-    with:
       # This app cache-busts its PWA via a deploy-time patch bump
       # (package.json, manifest start_url, index.html badge).
       version_bump: true
