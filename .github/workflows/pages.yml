@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   fleet:
-    uses: paulgibeault/paulgibeault.github.io/.github/workflows/fleet-ci.yml@main
+    uses: paulgibeault/paulgibeault.github.io/.github/workflows/fleet-ci.yml@ci/pipeline-hardening
     with:
       # This app cache-busts its PWA via a deploy-time patch bump
       # (package.json, manifest start_url, index.html badge).
