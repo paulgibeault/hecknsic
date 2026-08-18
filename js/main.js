@@ -26,7 +26,6 @@ import { registerFrameLoop } from './frame.js';
 import { openModal, closeModal, registerModalHost } from './modal.js';
 import { shakeRefusal, prepopulateNameInputs } from './ui.js';
 
-import { handleGameOver } from './animations.js';
 import { updateTweens, suspendTweenClock, hasActiveTweens } from './tween.js';
 import {
   updateDisplayScore,
@@ -36,22 +35,23 @@ import {
   addHighScore, getHighScores,
   setPlayerName,
   loadSettings, saveSettings,
-  recordModeScore, seedRecordsFromScores,
+  recordModeScore, seedRecordsFromScores, recordGameEnd,
 } from './storage.js';
 import {
-  wireUiClicks, playGameWin, stopBed,
+  wireUiClicks, playGameWin, playGameOver, playOverAchiever, stopBed,
 } from './audio.js';
 import {
   initPuzzleModeUI, showPuzzleSelector, registerPuzzleCallbacks,
   clearActivePuzzle,
 } from './puzzle-mode.js';
 import {
-  registerGameStateHost, getAnimationContext,
-  getGrid, getState, setState, getSelectedCluster, getBoardGeneration,
+  registerGameStateHost,
+  getGrid, getState, setState, getSelectedCluster,
   isGamePaused, setPaused,
   isProcessing, nothingLeftToDo, resumeFromPause, processInput,
   initBoardFromSave, loadPuzzleBoard,
   resetGame, resetBoardForNewMode, saveGame, postRotationCheck,
+  handleGameOver,
 } from './game-state.js';
 
 // ─── Bootstrap ──────────────────────────────────────────────────
@@ -72,6 +72,52 @@ registerGameStateHost({
     playGameWin();
     prepopulateNameInputs();
     openModal('modal-gamewin');
+  },
+
+  // The end-of-run presentation. All of this used to run from inside
+  // js/animations.js — the modal DOM, the lifetime stats and the audio — which
+  // is what gave an animation module a document to write to (hecknsic#66).
+  // game-state.js owns the transition and awaits the explosion; the pixels and
+  // the persistence are main.js's, so they are here.
+  //
+  // Both hooks run BEFORE the explosion tween the caller then awaits, which is
+  // the whole reason modal-gameover and modal-over-achiever are non-pausing in
+  // js/modal.js: pausing here would park the loop that tween needs.
+  onGameOver: (isSessionEnd) => {
+    recordGameEnd(getMaxCombo());
+    // A real game over is two events: the detonation, then the aftermath tolls
+    // a beat behind it. A peaceful chill-session end is the tolls alone —
+    // nothing exploded. The floor drops away under both.
+    stopBed(1.5);
+    playGameOver(isSessionEnd);
+
+    // No modal for a peaceful chill session end; the board just clears.
+    if (isSessionEnd) return;
+
+    const heading = document.querySelector('#modal-gameover h2');
+    if (heading) {
+      heading.textContent = 'GAME OVER';
+      heading.style.color = '#ff4444';
+      heading.style.borderColor = '#ff4444';
+    }
+    const messageEl = document.querySelector('.gameover-message');
+    if (messageEl) {
+      messageEl.style.display = 'block';
+      messageEl.textContent = '💣 A bomb exploded!';
+    }
+    document.getElementById('go-score').textContent = getScore().toLocaleString();
+    document.getElementById('go-combo').textContent = `x${getMaxCombo()}`;
+    prepopulateNameInputs();
+    openModal('modal-gameover');
+  },
+
+  onOverAchiever: () => {
+    stopBed(1.5);
+    playOverAchiever();
+    document.getElementById('go-oa-score').textContent = getScore().toLocaleString();
+    document.getElementById('go-oa-combo').textContent = `x${getMaxCombo()}`;
+    prepopulateNameInputs();
+    openModal('modal-over-achiever');
   },
 });
 
@@ -98,7 +144,7 @@ if (/(^|[?&#])debug\b/.test(window.location.search + window.location.hash)) {
   window.debug = {
     getGrid,
     getState,
-    runPostRotation: () => postRotationCheck(getBoardGeneration()),
+    runPostRotation: () => postRotationCheck(),
   };
 }
 
@@ -372,7 +418,7 @@ document.getElementById('btn-confirm-end').addEventListener('click', (e) => {
   requestRedraw();
 
   // End session logic: trigger explosion sequence
-  handleGameOver(getAnimationContext(), true);
+  handleGameOver(true);
 });
 
 function showHighScores() {

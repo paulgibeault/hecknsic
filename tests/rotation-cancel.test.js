@@ -13,6 +13,17 @@
  * start paths) close the common door; these tests pin the backstop, which is
  * what makes a door someone forgets to close harmless.
  *
+ * The backstop changed shape in hecknsic#66 and these tests changed with it.
+ * It used to be a generation number the animator compared by hand after its
+ * last await; it is now the board's cancellation token (js/cancel.js), which
+ * the animator awaits *through*, so replacing the board throws Cancelled out
+ * of whichever tween is in flight. The thing being pinned is the same and the
+ * assertions below are unchanged: whatever the mechanism, a rotation must not
+ * commit to a board that replaced the one it started on. What the mid-flight
+ * swap does is now `token.cancel()` instead of `ctx.boardGeneration = 2` —
+ * that is what the state machine itself does on a restart, mode switch or
+ * puzzle load.
+ *
  * Tweens normally advance from the game loop's rAF callback. There is no loop
  * here, so the pump below calls updateTweens() directly; reducedMotion makes
  * every tween zero-duration, so one pump call retires one await.
@@ -40,6 +51,7 @@ globalThis.requestAnimationFrame = globalThis.window.requestAnimationFrame;
 const { animateClusterRotation, animateRingRotation, animateYRotation } =
   await import('../js/animations.js');
 const { updateTweens } = await import('../js/tween.js');
+const { createCancelToken, isCancelled } = await import('../js/cancel.js');
 
 /**
  * Hand-cranked tween clock. `step()` retires exactly one await of the
@@ -81,14 +93,12 @@ function makeCtx(grid) {
     grid,
     activeCols: grid.length,
     activeRows: grid[0].length,
-    boardGeneration: 1,
+    token: createCancelToken(1),
     selectedCluster: [
       { col: 2, row: 2 }, { col: 3, row: 2 }, { col: 2, row: 3 },
     ],
     flowerCenter: { col: 3, row: 3 },
     pearlCenter: { col: 3, row: 3 },
-    state: 'rotating',
-    setState() {},
   };
 }
 
@@ -108,15 +118,25 @@ async function rotateWithBoardReplacedMidFlight(animate) {
   // is parked on its next tween, with the rest of the rotation still ahead.
   await clock.step();
 
-  // What switchGameMode()/startPuzzle() do to the context at this moment.
+  // What switchGameMode()/startPuzzle()/resetGame() do at this moment: the
+  // outgoing board's token is cancelled and the grid is replaced.
   const newGrid = makeGrid(7, 7, 100);
   const before = snapshot(newGrid);
   ctx.grid = newGrid;
-  ctx.boardGeneration = 2;
+  ctx.token.cancel();
 
-  await clock.runOut(running);
+  // The animator unwinds with Cancelled rather than returning, which is the
+  // point of the token: a `return` only ends the function that wrote it, so
+  // every caller up the stack needed its own check and two of them were
+  // missing (hecknsic#62). Anything else thrown here is a real failure and is
+  // re-raised.
+  let cancelled = false;
+  await clock.runOut(running).catch((err) => {
+    if (!isCancelled(err)) throw err;
+    cancelled = true;
+  });
 
-  return { newGrid, before, oldGrid };
+  return { newGrid, before, oldGrid, cancelled };
 }
 
 for (const [name, animate] of [
@@ -125,12 +145,17 @@ for (const [name, animate] of [
   ['animateYRotation', animateYRotation],
 ]) {
   test(`${name} does not touch a board that replaced its own`, async () => {
-    const { newGrid, before } = await rotateWithBoardReplacedMidFlight(animate);
+    const { newGrid, before, cancelled } = await rotateWithBoardReplacedMidFlight(animate);
 
     assert.deepStrictEqual(
       snapshot(newGrid), before,
       `${name} committed its rotation to the board that replaced the one it ` +
       'started on — the player sees three cells of a fresh game scrambled');
+
+    assert.strictEqual(cancelled, true,
+      `${name} ran to completion on a cancelled board. It must unwind with ` +
+      'Cancelled, so that everything awaiting it stops too rather than each ' +
+      'caller having to remember a check of its own');
   });
 }
 

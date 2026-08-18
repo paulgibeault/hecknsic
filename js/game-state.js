@@ -27,9 +27,10 @@
  *      and frame.js are inert-until-registered seams built for exactly this
  *      (see their headers), and renderer/input/audio/score/storage/animations
  *      all already load under `node --test` today.
- *   2. `getAnimationContext()`, the object animations.js reads and writes the
- *      board through. Its shape is deliberately unchanged by the extraction —
- *      narrowing it is hecknsic#66.
+ *   2. `getAnimationContext()`, the object animations.js animates the board
+ *      through. Narrowed to reads plus settleBoard() by hecknsic#66: the
+ *      state transitions it used to carry (`setState`, `setBombQueued`,
+ *      `handleGameWin`, `resetGame`) are back on this side of the line.
  *   3. The host, below: the handful of effects that belong to main.js's own
  *      DOM and to main.js's own frame clock. Same pattern as
  *      `registerModalHost` / `registerFrameLoop`, and for the same reason —
@@ -45,7 +46,7 @@
  */
 
 import { GRID_COLS, GRID_ROWS, BOMB_INITIAL_TIMER } from './constants.js';
-import { createGrid, findMatchesForMode } from './board.js';
+import { createGrid, findMatchesForMode, applyGravity, fillEmpty } from './board.js';
 import {
   getIsDirty, hasActiveRendererAnimations, requestRedraw,
   setActiveGridSize, clearAllOverrides, getOrigin,
@@ -63,9 +64,12 @@ import { closeModal } from './modal.js';
 import {
   animateClusterRotation, animateRingRotation, animateYRotation,
   animateBlackPearlCreation, animateGrandPoobahCreation, animateStarflowerCreation,
-  handleOverAchiever, handleGameOver, runCascade, delay,
+  explodeBoard, runCascade,
 } from './animations.js';
 import { tween, hasActiveTweens, linear } from './tween.js';
+import {
+  createCancelToken, cancelledToken, isCancelToken, catchCancelled,
+} from './cancel.js';
 import {
   resetScore, restoreScore, advanceChain, resetChain,
   getScore, getDisplayScore, getChainLevel, getComboCount, getMaxCombo,
@@ -94,11 +98,19 @@ import { getActivePuzzle, onPuzzleMove } from './puzzle-mode.js';
 //                       main.js because it draws.
 //   onGameWin         — the win modal's presentation (name prefill, modal
 //                       open, audio). The transition itself is here.
+//   onGameOver        — same, for the end of a run: the score readout, the
+//   onOverAchiever      lifetime stats, the floor fading out, and the modal.
+//                       These two used to run from inside animations.js, which
+//                       is what put `document` in an animation module
+//                       (hecknsic#66). The transition and the explosion are
+//                       below; only the presentation goes out through here.
 
 const NOOP_HOST = {
   closeModeDropdown() {},
   resetFrameClock() {},
   onGameWin() {},
+  onGameOver() {},
+  onOverAchiever() {},
 };
 let host = NOOP_HOST;
 
@@ -123,7 +135,7 @@ export function resetGameStateForTests() {
   pearlCenter = null;
   moveCount = 0;
   bombQueued = false;
-  boardGeneration = 0;
+  boardToken = createCancelToken(0);
 }
 
 // ─── Game state ─────────────────────────────────────────────────
@@ -138,34 +150,100 @@ let flowerCenter = null;     // {col,row} if a starflower ring is selected
 let pearlCenter = null;      // {col,row} if a black pearl Y-shape is selected
 let moveCount = 0;           // total player moves (for bomb spawn timing)
 let bombQueued = false;
-let boardGeneration = 0;     // incremented on grid replacement; stale async chains bail out
+
+// ─── Board lifetime ─────────────────────────────────────────────
+//
+// One cancellation token per board (js/cancel.js). Every async chain — a
+// rotation, a cascade, a creation animation — carries the token of the board
+// it started on, and replaceBoard() below cancels it, so the chain throws at
+// its next seam instead of committing to a board that no longer exists.
+//
+// This replaces the `boardGeneration` integer that used to be compared by hand
+// after every await, twenty-five times across this module and animations.js
+// (hecknsic#66). The counter survives only as the token's id, because the
+// question "which board is this?" is still worth being able to ask.
+let boardToken = createCancelToken(0);
+
+/** Stop everything running on the outgoing board and mint the next one's
+ *  token. Called by every path that replaces the grid — and it must be called
+ *  by every such path, which is the one rule this mechanism still asks of an
+ *  author. */
+function replaceBoard() {
+  boardToken.cancel();
+  boardToken = createCancelToken(boardToken.id + 1);
+}
+
+/**
+ * Resolve whatever a caller passed as "which board" into a token.
+ *
+ * Chains inside this module pass the real thing. A bare number is the older
+ * shape — the ?debug hook and the tests name a board by its generation — and
+ * it still means exactly what it used to: this board if the number is current,
+ * a board that is already gone if it is not. Nothing means the board that is
+ * live right now, which is what a call from outside a chain means anyway.
+ */
+function asToken(t) {
+  if (isCancelToken(t)) return t;
+  if (typeof t === 'number') return t === boardToken.id ? boardToken : cancelledToken(t);
+  return boardToken;
+}
 
 // ─── Animation Context ──────────────────────────────────────────
 //
-// The handle animations.js reads and writes the board through. Its shape is
-// deliberately UNCHANGED by this extraction — the write accessors (`set grid`,
-// `setState`, `setBombQueued`) are exactly the ones hecknsic#66 removes, and
-// narrowing them here would collide with that package.
+// What an animation is allowed to see of the state machine (hecknsic#66).
+//
+// It used to hand animations.js `set grid`, `setState`, `setBombQueued`,
+// `handleGameWin`, `resetGame` and `clearGameState` — enough to drive the
+// machine from inside an animation, and it did: the win transition, the
+// game-over transition, the bomb-queue bookkeeping and the end-of-run save
+// wipe all fired from animations.js. Every one of those is a rule, and rules
+// live here.
+//
+// What is left is READ-ONLY, plus one operation:
+//
+//   grid / activeCols / activeRows — the board being animated. The array
+//     itself cannot be swapped (no setter); its cells are still written,
+//     because moving tiles around is what these functions *are*.
+//   selectedCluster / flowerCenter / pearlCenter — what the player picked.
+//   settleBoard() — gravity and refill, below. Not a write handle: the caller
+//     says "the board has finished moving", and the rule for what comes down
+//     with the refill stays on this side of the boundary.
+//
+// Animations report back by returning: the rotation animators return false
+// when the cells they were asked to turn are gone, and the caller — not the
+// animator — decides what state that means.
 
-export const getAnimationContext = () => ({
+export const getAnimationContext = (token = boardToken) => ({
   get grid() { return grid; },
-  set grid(g) { grid = g; },
   get activeCols() { return activeCols; },
   get activeRows() { return activeRows; },
-  get state() { return state; },
-  setState(s) { state = s; },
-  get boardGeneration() { return boardGeneration; },
+  get token() { return token; },
   get selectedCluster() { return selectedCluster; },
   get flowerCenter() { return flowerCenter; },
   get pearlCenter() { return pearlCenter; },
-  get moveCount() { return moveCount; },
-  get bombQueued() { return bombQueued; },
-  setBombQueued(q) { bombQueued = q; },
-  resetGame: () => resetGame(),
-  handleGameWin: () => handleGameWin(),
-  getCombinedModeId,
-  clearGameState,
+  settleBoard,
 });
+
+/**
+ * Let the board fall and refill the holes — the tail of every animation that
+ * clears cells.
+ *
+ * This is here rather than in animations.js because of the bomb queue: whether
+ * a queued bomb rides down with the refill depends on the mode's flags, and
+ * the refill is what consumes the queue. That was four hand-copied
+ * `mode.hasBombs && ctx.bombQueued` expressions in animations.js, each paired
+ * with its own `ctx.setBombQueued(false)` — the write handle #66 removes.
+ *
+ * @param {{starflowers?:number, blackpearls?:number, grandpoobahs?:number}} [extras]
+ *        specials whose centre was already special, to be re-dealt in the refill.
+ */
+function settleBoard(extras) {
+  applyGravity(grid, activeCols, activeRows);
+  const mode = getActiveGameMode();
+  const withBomb = mode.hasBombs && bombQueued;
+  const filled = fillEmpty(grid, activeCols, activeRows, undefined, withBomb, extras, mode.isPuzzle);
+  if (withBomb && filled.length > 0) bombQueued = false;
+}
 
 // ─── Accessors ──────────────────────────────────────────────────
 
@@ -182,7 +260,9 @@ export function getMoveCount() { return moveCount; }
 export function setMoveCount(n) { moveCount = n; }
 export function getBombQueued() { return bombQueued; }
 export function setBombQueued(q) { bombQueued = q; }
-export function getBoardGeneration() { return boardGeneration; }
+/** The live board's generation number — its identity, not the cancellation
+ *  mechanism. That is the token (js/cancel.js). */
+export function getBoardGeneration() { return boardToken.id; }
 export function isGamePaused() { return isPaused; }
 export function setPaused(p) { isPaused = p; }
 
@@ -236,7 +316,7 @@ export function initBoardFromSave() {
  * @param {number} cols @param {number} rows — puzzle grids may be smaller.
  */
 export function loadPuzzleBoard(puzzleGrid, cols, rows) {
-  boardGeneration++;
+  replaceBoard();
   setActiveGameMode('puzzle');
   clearAllOverrides();
   bombQueued = false;
@@ -467,7 +547,7 @@ export function processInput() {
  * it has one. Called from main.js's switchGameMode() after the HUD relayout.
  */
 export function resetBoardForNewMode() {
-  boardGeneration++;
+  replaceBoard();
   clearAllOverrides();
   bombQueued = false;
   clearSelection();
@@ -491,10 +571,11 @@ export function resetBoardForNewMode() {
   requestRedraw();
 }
 
-/** Deal a fresh board in the current mode. Reached from every "new game" button
- *  and from ctx.resetGame() at the end of the explosion sequence. */
+/** Deal a fresh board in the current mode. Reached from every "new game"
+ *  button and from handleGameOver() at the end of a chill session's
+ *  explosion. */
 export function resetGame() {
-  boardGeneration++;
+  replaceBoard();
   resetScore();
   resetChain();
   grid = createGrid();
@@ -540,21 +621,71 @@ export function handleGameWin() {
   host.onGameWin();
 }
 
+/**
+ * The end of a run: freeze the board, drop the save, hand the presentation to
+ * the host, then blow the board apart.
+ *
+ * The order is load-bearing and is exactly the order animations.js used to run
+ * it in. The modal goes up FIRST and the explosion is awaited BEHIND it —
+ * which is why 'modal-gameover' is non-pausing in MODAL_POLICY: pausing would
+ * park the loop that advances the 1500 ms tween below and the await would
+ * never settle.
+ *
+ * @param {boolean} [isSessionEnd] — true for the peaceful chill-session end
+ *        (btn-confirm-end): no game-over modal, no detonation sound, and a
+ *        fresh board dealt once the pieces have finished flying.
+ */
+export async function handleGameOver(isSessionEnd = false) {
+  state = 'gameover';
+  clearGameState(getCombinedModeId());
+  // Lifetime stats, the floor fading out, the score readout and the modal.
+  // Score itself is committed when the player confirms their name in
+  // modal-gameover (or, for chill, by btn-confirm-end before this runs).
+  host.onGameOver(isSessionEnd);
+
+  await explodeBoard(getAnimationContext());
+
+  if (isSessionEnd) resetGame();
+}
+
+/** The over-achiever end: a Grand Poobah ring, which outranks everything on
+ *  the ladder and stops the run where it stands. Same shape as
+ *  handleGameOver(), and 'modal-over-achiever' is non-pausing for the same
+ *  reason — the explosion runs behind it. */
+export async function handleOverAchiever() {
+  state = 'gameover';
+  clearGameState(getCombinedModeId());
+  host.onOverAchiever();
+
+  await explodeBoard(getAnimationContext());
+}
+
 // ─── Rotation ───────────────────────────────────────────────────
 
 /**
  * A player rotation press: spin, then look at what it produced.
+ *
+ * One of the two entry points a cancellable chain starts at, so it is one of
+ * the two places that swallow Cancelled: a board replaced mid-rotation unwinds
+ * the whole chain to here, and stopping is the correct outcome, not an error.
+ *
  * @param {boolean} clockwise
  */
-export async function animateRotation(clockwise) {
+export function animateRotation(clockwise) {
+  return catchCancelled(runRotation(clockwise));
+}
+
+/** @param {boolean} clockwise */
+async function runRotation(clockwise) {
   if (state !== 'selected') return;
   state = 'rotating';
   // One ratchet per player rotation press, not per internal step. The
   // mechanism's size follows what is actually turning: a starflower spins its
   // six-tile ring, a black pearl its Y, everything else the plain 3-cluster.
   playRotate(flowerCenter ? 'ring' : pearlCenter ? 'y' : 'cluster');
-  const gen = boardGeneration;
-  const ctx = getAnimationContext();
+  // One token for the whole press, taken from the board it started on.
+  const token = boardToken;
+  const ctx = getAnimationContext(token);
 
   const { originX, originY } = getOrigin();
 
@@ -565,15 +696,19 @@ export async function animateRotation(clockwise) {
   if (flowerCenter || pearlCenter) maxSteps = 1;
 
   for (let step = 0; step < maxSteps; step++) {
-    // 1. Animate one step
-    if (flowerCenter) {
-      await animateRingRotation(ctx, clockwise, originX, originY);
-    } else if (pearlCenter) {
-      await animateYRotation(ctx, clockwise, originX, originY);
-    } else {
-      await animateClusterRotation(ctx, clockwise, originX, originY);
-    }
-    if (boardGeneration !== gen) return; // board was replaced (e.g. restart)
+    // 1. Animate one step.
+    //
+    // `false` means the animator found a hole where its cells used to be and
+    // did nothing. It used to reach back through the context and set the state
+    // itself (`ctx.setState('idle')`); now it reports and this side decides.
+    // The loop then carries on exactly as it did before — postRotationCheck()
+    // below is what settles the state for real either way.
+    const turned = flowerCenter
+      ? await animateRingRotation(ctx, clockwise, originX, originY)
+      : pearlCenter
+        ? await animateYRotation(ctx, clockwise, originX, originY)
+        : await animateClusterRotation(ctx, clockwise, originX, originY);
+    if (turned === false) state = 'idle';
 
     // 2. Check for matches or specials
     const matches = findMatchesForMode(grid, activeCols, activeRows);
@@ -584,14 +719,14 @@ export async function animateRotation(clockwise) {
     // If we found anything significant, proceed to post-rotation logic (cascade/etc)
     // and STOP rotating.
     if (matches.size > 0 || sfResults.length > 0 || bpResults.length > 0 || gpResults.length > 0) {
-      await postRotationCheck(gen);
+      await postRotationCheck(token);
       return;
     }
   }
 
   // If we loop through all steps without a match, we are back at the start.
   // Count as a move, tick bombs, etc.
-  await postRotationCheck(gen);
+  await postRotationCheck(token);
 }
 
 /** How pressed the player is by bombs, 0..1, from the SHORTEST live fuse on the
@@ -652,14 +787,24 @@ export function nextResolution(g = grid, cols = activeCols, rows = activeRows) {
   return { kind: 'stable' };
 }
 
-/** Shared post-rotation logic: tick bombs, cascade or detect specials.
- *  @param {number} gen — boardGeneration at call time; bail out if it changes.
- *                        Always pass explicitly — do not rely on a default capture. */
-export async function postRotationCheck(gen) {
-  // Guard: callers must pass gen so stale async chains bail correctly.
-  if (gen === undefined) gen = boardGeneration;
+/**
+ * Shared post-rotation logic: tick bombs, cascade or detect specials.
+ *
+ * The other entry point that swallows Cancelled — a board replaced anywhere in
+ * the cascade unwinds to here and stops, which is the intended outcome.
+ *
+ * @param {import('./cancel.js').CancelToken|number} [token] — the board this
+ *        run belongs to. See asToken(): a generation number still works (the
+ *        ?debug hook and the tests name a board that way), and nothing at all
+ *        means the board that is live right now.
+ */
+export function postRotationCheck(token) {
+  return catchCancelled(runPostRotationCheck(asToken(token)));
+}
+
+async function runPostRotationCheck(token) {
   moveCount++;
-  const ctx = getAnimationContext();
+  const ctx = getAnimationContext(token);
 
   const mode = getActiveGameMode();
 
@@ -679,14 +824,13 @@ export async function postRotationCheck(gen) {
       // The fuse clock, with the shake. Urgency tracks the SHORTEST live fuse,
       // since that is the one about to end the game.
       playBombTick(bombUrgency());
-      await tween(250, t => {
+      await token.tween(250, t => {
         const shakeX = Math.sin(t * Math.PI * 6) * 4 * (1 - t);
         for (const b of bombCells) {
           setCellOverride(b.c, b.r, { offsetX: shakeX });
         }
         requestRedraw();
-      }, linear).promise;
-      if (boardGeneration !== gen) return;
+      }, linear);
       for (const b of bombCells) clearCellOverride(b.c, b.r);
       requestRedraw();
     }
@@ -708,27 +852,32 @@ export async function postRotationCheck(gen) {
   let isFirstStep = true;
 
   while (!boardStable) {
-    if (boardGeneration !== gen) return;
+    // The one seam in the chain with no await in front of it: the loop head
+    // resumes work on the board, so it asks before it does.
+    token.guard();
     boardStable = true;
 
     const step = nextResolution(grid, activeCols, activeRows);
 
     // Grand Poobah Ring (Over-Achiever) short-circuits the whole run.
     if (step.kind === 'poobah-ring') {
-      await handleOverAchiever(ctx);
+      await handleOverAchiever();
       return;
     }
     if (step.kind === 'stable') break;
 
     const chained = !isFirstStep;
-    if (chained) { advanceChain(); await delay(100); }
-    if (boardGeneration !== gen) return;
+    if (chained) { advanceChain(); await token.delay(100); }
     isFirstStep = false;
     state = 'cascading';
 
     if (step.kind === 'grandpoobah') {
       playSpecial('grandpoobah');
       await animateGrandPoobahCreation(ctx, step.results);
+      // Building a Grand Poobah wins the game. The animation used to make this
+      // transition itself, through the context, as its last statement; the
+      // moment in the chain is unchanged, the caller just owns it now.
+      handleGameWin();
     } else if (step.kind === 'blackpearl') {
       playSpecial('blackpearl');
       await animateBlackPearlCreation(ctx, step.results);
@@ -740,10 +889,9 @@ export async function postRotationCheck(gen) {
       // cascade steps = combo, climbing the ladder with chain depth.
       if (chained) playCombo(getChainLevel());
       else playMatch(step.results.size);
-      await runCascade(ctx, step.results, gen);
+      await runCascade(ctx, step.results);
     }
 
-    if (boardGeneration !== gen) return;
     boardStable = false;
   }
 
@@ -785,7 +933,7 @@ export async function postRotationCheck(gen) {
       }
     }
     if (exploded) {
-       handleGameOver(ctx, false);
+       handleGameOver(false);
        return;
     }
   }

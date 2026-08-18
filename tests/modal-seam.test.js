@@ -214,11 +214,11 @@ test('the end-of-run modals stay non-pausing so the explosion can tick', () => {
     const h = makeHost();
     modal.openModal(id);
     assert.strictEqual(h.isPaused, false,
-      `${id} must NOT pause: handleGameOver()/handleOverAchiever() show it and ` +
-      'then await a 1.5 s tween that blows the board apart behind it, and ' +
-      'handleGameWin() is the tail of an animation its caller is still ' +
-      'awaiting. Pausing would park the loop those awaits depend on and hang ' +
-      'the game.');
+      `${id} must NOT pause: handleGameOver()/handleOverAchiever() (now in ` +
+      'js/game-state.js) show it and then await the 1.5 s explodeBoard() tween ' +
+      'that blows the board apart behind it, and handleGameWin() runs inside a ' +
+      'cascade loop that goes on awaiting after it. Pausing would park the ' +
+      'loop those awaits depend on and hang the game.');
 
     renderer.requestRedraw();
     assert.strictEqual(h.starts, 1,

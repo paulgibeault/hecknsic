@@ -49,13 +49,17 @@ import { clearPendingAction } from './input.js';
  * meant a puzzle could tick its bomb fuses while the player browsed the menu.
  *
  * NON-PAUSING (the five end-of-run modals): these are opened *over a
- * running animation on purpose*. handleGameOver() and handleOverAchiever()
- * show the modal and then `await tween(1500, …)` to blow the board apart
- * behind it; handleGameWin() is the tail of animateGrandPoobahCreation(),
- * which its caller is still awaiting inside the cascade loop. Pausing any of
- * the three would park the loop that advances those tweens, the awaits would
- * never settle, and the game would hang — a strictly worse bug than the one
- * this module fixes. They do not need the pause anyway: they are only ever
+ * running animation on purpose*. game-state.js's handleGameOver() and
+ * handleOverAchiever() show the modal — through the host hook main.js
+ * registers — and then `await explodeBoard()`, which is a 1500 ms tween that
+ * blows the board apart behind it; handleGameWin() is called from inside
+ * postRotationCheck()'s cascade loop, which goes on awaiting further steps
+ * after it. (hecknsic#66 moved all three out of animations.js; what they do,
+ * and the order they do it in, is unchanged — the modal still goes up first
+ * and the tween is still awaited behind it.) Pausing any of the three would
+ * park the loop that advances those tweens, the awaits would never settle,
+ * and the game would hang — a strictly worse bug than the one this module
+ * fixes. They do not need the pause anyway: they are only ever
  * shown with `state === 'gameover'`, which already refuses input, drains the
  * gesture queue and parks the loop as soon as the explosion has finished.
  * Their close handlers still go through closeModal() and so still resume and

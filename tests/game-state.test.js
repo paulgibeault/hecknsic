@@ -425,6 +425,54 @@ test('a cascade actually runs the ladder: a starflower board ends up holding one
   assert.strictEqual(gs.getState(), 'idle', 'something cleared, so the selection is dropped');
 });
 
+test('the refill consumes the queued bomb — the rule the animation used to own', async () => {
+  // fillEmpty()'s bomb argument and the `bombQueued = false` that follows a
+  // successful refill used to be four hand-copied pairs inside animations.js,
+  // reached through ctx.setBombQueued(). hecknsic#66 moved the rule to
+  // game-state.js's settleBoard(); this is that rule, asserted end to end.
+  const g = quietBoard();
+  g[4][4] = { colorIndex: 0, special: null };
+  for (const n of RING) g[n.col][n.row] = { colorIndex: 1, special: null };
+  arm(g, 'arcade');
+  gs.setBombQueued(true);
+
+  await pump(gs.postRotationCheck(gs.getBoardGeneration()));
+
+  // The queue flag is the whole assertion, and it is not a vacuous one: it can
+  // only clear if the refill actually dealt tiles, which is the condition the
+  // rule is written against. Counting bombs on the board afterwards would be
+  // flaky rather than stronger — the refill deals random colours, so a chained
+  // cascade step can clear the very bomb it just dropped in.
+  assert.strictEqual(gs.getBombQueued(), false,
+    'a refill that dealt tiles must consume the queued bomb, or the next ' +
+    'refill deals a second bomb for the same move');
+});
+
+test('building a Grand Poobah fires the win transition exactly once', async () => {
+  // The win used to be the last statement of animateGrandPoobahCreation(),
+  // made through the context; it is the caller's now (hecknsic#66). Same
+  // moment, same count.
+  const g = quietBoard();
+  for (const n of RING) g[n.col][n.row] = { colorIndex: -2, special: 'blackpearl' };
+  arm(g, 'chill');
+  let wins = 0;
+  gs.registerGameStateHost({ onGameWin: () => { wins++; } });
+
+  await pump(gs.postRotationCheck(gs.getBoardGeneration()));
+
+  gs.registerGameStateHost({});
+  assert.strictEqual(wins, 1, 'six black pearls make a Grand Poobah, and that wins the game');
+
+  const board = gs.getGrid();
+  let poobahs = 0;
+  for (let c = 0; c < GRID_COLS; c++) {
+    for (let r = 0; r < GRID_ROWS; r++) {
+      if (board[c]?.[r]?.special === 'grandpoobah') poobahs++;
+    }
+  }
+  assert.ok(poobahs >= 1, 'and the poobah is on the board');
+});
+
 // ─── Bomb rules, gated by the mode flags ────────────────────────
 //
 // modes.js: arcade { hasBombs: true, ticksBombs: true }, chill { both false },

@@ -2,7 +2,7 @@ import {
   MATCH_FLASH_MS, GRAVITY_MS,
   ROTATION_POP_MS, ROTATION_SETTLE_MS
 } from './constants.js';
-import { rotateCluster, rotateRing, applyGravity, fillEmpty } from './board.js';
+import { rotateCluster, rotateRing } from './board.js';
 import {
   setCellOverride, clearAllOverrides,
   addFloatingPiece, removeFloatingPiece,
@@ -10,28 +10,52 @@ import {
   spawnColorNukeParticles, spawnExplosionParticles, spawnScorePopup, flashScreenOverlay,
   getOrigin
 } from './renderer.js';
-import { getActiveGameMode } from './modes.js';
 import { hexToPixel, getNeighbors } from './hex-math.js';
 import { tween, easeOutCubic, easeOutBounce, linear } from './tween.js';
-import { awardMatch, getChainLevel, getScore, getMaxCombo } from './score.js';
+import { awardMatch, getChainLevel } from './score.js';
 import {
   detectStarflowersAtCleared, detectBlackPearls, detectMultiplierClusters
 } from './specials.js';
 import { onStarflowerCreated } from './puzzle-mode.js';
-import { openModal } from './modal.js';
-import { recordGameEnd } from './storage.js';
-import { prepopulateNameInputs } from './ui.js';
-import { playGameOver, playOverAchiever, stopBed } from './audio.js';
 
-/** Animate 3-hex cluster rotation (original pop-thunk) */
+/**
+ * animations.js — the board in motion.
+ *
+ * TWO RULES, both of them hecknsic#66:
+ *
+ * 1. No DOM. Nothing here reaches for a document; the end-of-run modals used
+ *    to be written from inside handleGameOver()/handleOverAchiever() and now
+ *    live behind game-state.js's host, which main.js registers. What is left
+ *    of the explosion is explodeBoard(). A repo gate in tests/cancellation.test.js
+ *    holds the line.
+ *
+ * 2. No state transitions. `ctx` is read-only apart from the board cells these
+ *    functions exist to move and settleBoard(), which is game-state.js's own
+ *    function. An animation reports what happened by returning; deciding what
+ *    that means is the state machine's job.
+ *
+ * CANCELLATION. Every chain in here carries `ctx.token`, minted for the board
+ * it started on (js/cancel.js). Awaiting through `token.tween(…)` /
+ * `token.delay(…)` throws Cancelled the moment that board is replaced, so a
+ * rotation whose board is swapped out from under it unwinds instead of
+ * committing three cells of the old board onto the new one (hecknsic#62,
+ * pinned by tests/rotation-cancel.test.js). Anything allocated across an await
+ * — floating pieces, in practice — is released in a `finally`, because the
+ * throw skips whatever came after it.
+ */
+
+/** Animate 3-hex cluster rotation (original pop-thunk).
+ *  @returns {Promise<boolean>} false if the cells it was asked to turn are no
+ *  longer on the board — the caller owns the state change that follows.
+ *  @throws {Cancelled} if the board is replaced mid-rotation. */
 export async function animateClusterRotation(ctx, clockwise, originX, originY) {
-  const gen = ctx.boardGeneration;
+  const token = ctx.token;
   const cluster = ctx.selectedCluster;
   const pixelPos = cluster.map(h => hexToPixel(h.col, h.row, originX, originY));
   const cx = (pixelPos[0].x + pixelPos[1].x + pixelPos[2].x) / 3;
   const cy = (pixelPos[0].y + pixelPos[1].y + pixelPos[2].y) / 3;
   const cells = cluster.map(h => ctx.grid[h.col]?.[h.row]);
-  if (cells.some(c => !c)) { ctx.setState('idle'); return; }
+  if (cells.some(c => !c)) return false;
   const colors = cells.map(c => c.colorIndex);
   const specials = cells.map(c => c.special);
 
@@ -44,55 +68,63 @@ export async function animateClusterRotation(ctx, clockwise, originX, originY) {
     });
   });
 
-  // Pop
-  await tween(ROTATION_POP_MS, t => {
-    for (const fp of floaters) { fp.scale = 1 + 0.2 * t; fp.shadow = t > 0.3; }
-  }, easeOutCubic).promise;
-
   const targets = clockwise
     ? [pixelPos[1], pixelPos[2], pixelPos[0]]
     : [pixelPos[2], pixelPos[0], pixelPos[1]];
-  const startPos = floaters.map(fp => ({ x: fp.x, y: fp.y }));
+  let startPos;
 
-  // Arc
-  await tween(ROTATION_SETTLE_MS * 0.6, t => {
-    for (let i = 0; i < 3; i++) {
-      const a0 = Math.atan2(startPos[i].y - cy, startPos[i].x - cx);
-      const a1 = Math.atan2(targets[i].y - cy, targets[i].x - cx);
-      let da = a1 - a0;
-      if (clockwise && da > 0) da -= Math.PI * 2;
-      if (!clockwise && da < 0) da += Math.PI * 2;
-      const angle = a0 + da * t;
-      const r0 = Math.hypot(startPos[i].x - cx, startPos[i].y - cy);
-      const r1 = Math.hypot(targets[i].x - cx, targets[i].y - cy);
-      const radius = r0 + (r1 - r0) * t;
-      floaters[i].x = cx + Math.cos(angle) * radius;
-      floaters[i].y = cy + Math.sin(angle) * radius;
-    }
-  }, easeOutCubic).promise;
-
-  // Settle
-  await tween(ROTATION_SETTLE_MS * 0.4, t => {
-    for (let i = 0; i < 3; i++) {
-      floaters[i].x = targets[i].x;
-      floaters[i].y = targets[i].y;
-      floaters[i].scale = 1 + 0.2 * (1 - t);
-      floaters[i].shadow = t < 0.7;
-    }
-  }, easeOutBounce).promise;
-
-  for (const fp of floaters) removeFloatingPiece(fp);
   // The board can be swapped out from under an in-flight rotation (mode
   // switch, puzzle load, restart). Rotating now would scramble three cells of
-  // the fresh board, and clearAllOverrides() would wipe the overrides it set.
-  if (ctx.boardGeneration !== gen) return;
+  // the fresh board, and clearAllOverrides() would wipe the overrides it set —
+  // so any of these three awaits throws Cancelled rather than returning here,
+  // and the floating pieces are released on the way out either way.
+  try {
+    // Pop
+    await token.tween(ROTATION_POP_MS, t => {
+      for (const fp of floaters) { fp.scale = 1 + 0.2 * t; fp.shadow = t > 0.3; }
+    }, easeOutCubic);
+
+    startPos = floaters.map(fp => ({ x: fp.x, y: fp.y }));
+
+    // Arc
+    await token.tween(ROTATION_SETTLE_MS * 0.6, t => {
+      for (let i = 0; i < 3; i++) {
+        const a0 = Math.atan2(startPos[i].y - cy, startPos[i].x - cx);
+        const a1 = Math.atan2(targets[i].y - cy, targets[i].x - cx);
+        let da = a1 - a0;
+        if (clockwise && da > 0) da -= Math.PI * 2;
+        if (!clockwise && da < 0) da += Math.PI * 2;
+        const angle = a0 + da * t;
+        const r0 = Math.hypot(startPos[i].x - cx, startPos[i].y - cy);
+        const r1 = Math.hypot(targets[i].x - cx, targets[i].y - cy);
+        const radius = r0 + (r1 - r0) * t;
+        floaters[i].x = cx + Math.cos(angle) * radius;
+        floaters[i].y = cy + Math.sin(angle) * radius;
+      }
+    }, easeOutCubic);
+
+    // Settle
+    await token.tween(ROTATION_SETTLE_MS * 0.4, t => {
+      for (let i = 0; i < 3; i++) {
+        floaters[i].x = targets[i].x;
+        floaters[i].y = targets[i].y;
+        floaters[i].scale = 1 + 0.2 * (1 - t);
+        floaters[i].shadow = t < 0.7;
+      }
+    }, easeOutBounce);
+  } finally {
+    for (const fp of floaters) removeFloatingPiece(fp);
+  }
+
   clearAllOverrides();
   rotateCluster(ctx.grid, cluster, clockwise);
+  return true;
 }
 
-/** Animate 6-hex ring rotation around flower center */
+/** Animate 6-hex ring rotation around flower center. @returns {Promise<boolean>}
+ *  @throws {Cancelled} if the board is replaced mid-rotation. */
 export async function animateRingRotation(ctx, clockwise, originX, originY) {
-  const gen = ctx.boardGeneration;
+  const token = ctx.token;
   const center = ctx.flowerCenter;
   const ring = getNeighbors(center.col, center.row);
   const centerPx = hexToPixel(center.col, center.row, originX, originY);
@@ -101,7 +133,7 @@ export async function animateRingRotation(ctx, clockwise, originX, originY) {
 
   const pixelPos = ring.map(h => hexToPixel(h.col, h.row, originX, originY));
   const ringCells = ring.map(h => ctx.grid[h.col]?.[h.row]);
-  if (ringCells.some(c => !c)) { ctx.setState('idle'); return; }
+  if (ringCells.some(c => !c)) return false;
   const colors = ringCells.map(c => c.colorIndex);
   const specials = ringCells.map(c => c.special);
 
@@ -115,53 +147,59 @@ export async function animateRingRotation(ctx, clockwise, originX, originY) {
     });
   });
 
-  // Pop
-  await tween(ROTATION_POP_MS, t => {
-    for (const fp of floaters) { fp.scale = 1 + 0.15 * t; fp.shadow = t > 0.3; }
-  }, easeOutCubic).promise;
-
   // Targets: each piece moves one position CW or CCW
   const targets = clockwise
     ? ring.map((_, i) => pixelPos[(i + 1) % 6])
     : ring.map((_, i) => pixelPos[(i + 5) % 6]);
-  const startPos = floaters.map(fp => ({ x: fp.x, y: fp.y }));
+  let startPos;
 
-  // Arc around center
-  await tween(ROTATION_SETTLE_MS * 0.7, t => {
-    for (let i = 0; i < 6; i++) {
-      const a0 = Math.atan2(startPos[i].y - cy, startPos[i].x - cx);
-      const a1 = Math.atan2(targets[i].y - cy, targets[i].x - cx);
-      let da = a1 - a0;
-      if (clockwise && da > 0) da -= Math.PI * 2;
-      if (!clockwise && da < 0) da += Math.PI * 2;
-      const angle = a0 + da * t;
-      const r0 = Math.hypot(startPos[i].x - cx, startPos[i].y - cy);
-      const r1 = Math.hypot(targets[i].x - cx, targets[i].y - cy);
-      const radius = r0 + (r1 - r0) * t;
-      floaters[i].x = cx + Math.cos(angle) * radius;
-      floaters[i].y = cy + Math.sin(angle) * radius;
-    }
-  }, easeOutCubic).promise;
+  try {
+    // Pop
+    await token.tween(ROTATION_POP_MS, t => {
+      for (const fp of floaters) { fp.scale = 1 + 0.15 * t; fp.shadow = t > 0.3; }
+    }, easeOutCubic);
 
-  // Settle
-  await tween(ROTATION_SETTLE_MS * 0.3, t => {
-    for (let i = 0; i < 6; i++) {
-      floaters[i].x = targets[i].x;
-      floaters[i].y = targets[i].y;
-      floaters[i].scale = 1 + 0.15 * (1 - t);
-      floaters[i].shadow = t < 0.7;
-    }
-  }, easeOutBounce).promise;
+    startPos = floaters.map(fp => ({ x: fp.x, y: fp.y }));
 
-  for (const fp of floaters) removeFloatingPiece(fp);
-  if (ctx.boardGeneration !== gen) return; // board was replaced mid-rotation
+    // Arc around center
+    await token.tween(ROTATION_SETTLE_MS * 0.7, t => {
+      for (let i = 0; i < 6; i++) {
+        const a0 = Math.atan2(startPos[i].y - cy, startPos[i].x - cx);
+        const a1 = Math.atan2(targets[i].y - cy, targets[i].x - cx);
+        let da = a1 - a0;
+        if (clockwise && da > 0) da -= Math.PI * 2;
+        if (!clockwise && da < 0) da += Math.PI * 2;
+        const angle = a0 + da * t;
+        const r0 = Math.hypot(startPos[i].x - cx, startPos[i].y - cy);
+        const r1 = Math.hypot(targets[i].x - cx, targets[i].y - cy);
+        const radius = r0 + (r1 - r0) * t;
+        floaters[i].x = cx + Math.cos(angle) * radius;
+        floaters[i].y = cy + Math.sin(angle) * radius;
+      }
+    }, easeOutCubic);
+
+    // Settle
+    await token.tween(ROTATION_SETTLE_MS * 0.3, t => {
+      for (let i = 0; i < 6; i++) {
+        floaters[i].x = targets[i].x;
+        floaters[i].y = targets[i].y;
+        floaters[i].scale = 1 + 0.15 * (1 - t);
+        floaters[i].shadow = t < 0.7;
+      }
+    }, easeOutBounce);
+  } finally {
+    for (const fp of floaters) removeFloatingPiece(fp);
+  }
+
   clearAllOverrides();
   rotateRing(ctx.grid, ring, clockwise);
+  return true;
 }
 
-/** Animate 3-hex Y-shape rotation around black pearl center */
+/** Animate 3-hex Y-shape rotation around black pearl center.
+ *  @returns {Promise<boolean>} @throws {Cancelled} */
 export async function animateYRotation(ctx, clockwise, originX, originY) {
-  const gen = ctx.boardGeneration;
+  const token = ctx.token;
   const center = ctx.pearlCenter;
   const nbrs = getNeighbors(center.col, center.row);
   // Y-shape uses alternating neighbors (0, 2, 4)
@@ -172,7 +210,7 @@ export async function animateYRotation(ctx, clockwise, originX, originY) {
 
   const pixelPos = yRing.map(h => hexToPixel(h.col, h.row, originX, originY));
   const yCells = yRing.map(h => ctx.grid[h.col]?.[h.row]);
-  if (yCells.some(c => !c)) { ctx.setState('idle'); return; }
+  if (yCells.some(c => !c)) return false;
   const colors = yCells.map(c => c.colorIndex);
   const specials = yCells.map(c => c.special);
 
@@ -186,46 +224,50 @@ export async function animateYRotation(ctx, clockwise, originX, originY) {
     });
   });
 
-  // Pop
-  await tween(ROTATION_POP_MS, t => {
-    for (const fp of floaters) { fp.scale = 1 + 0.15 * t; fp.shadow = t > 0.3; }
-  }, easeOutCubic).promise;
-
   // Targets: each piece moves to the next position in the Y
   const targets = clockwise
     ? [pixelPos[1], pixelPos[2], pixelPos[0]]
     : [pixelPos[2], pixelPos[0], pixelPos[1]];
-  const startPos = floaters.map(fp => ({ x: fp.x, y: fp.y }));
+  let startPos;
 
-  // Arc around center
-  await tween(ROTATION_SETTLE_MS * 0.7, t => {
-    for (let i = 0; i < 3; i++) {
-      const a0 = Math.atan2(startPos[i].y - cy, startPos[i].x - cx);
-      const a1 = Math.atan2(targets[i].y - cy, targets[i].x - cx);
-      let da = a1 - a0;
-      if (clockwise && da > 0) da -= Math.PI * 2;
-      if (!clockwise && da < 0) da += Math.PI * 2;
-      const angle = a0 + da * t;
-      const r0 = Math.hypot(startPos[i].x - cx, startPos[i].y - cy);
-      const r1 = Math.hypot(targets[i].x - cx, targets[i].y - cy);
-      const radius = r0 + (r1 - r0) * t;
-      floaters[i].x = cx + Math.cos(angle) * radius;
-      floaters[i].y = cy + Math.sin(angle) * radius;
-    }
-  }, easeOutCubic).promise;
+  try {
+    // Pop
+    await token.tween(ROTATION_POP_MS, t => {
+      for (const fp of floaters) { fp.scale = 1 + 0.15 * t; fp.shadow = t > 0.3; }
+    }, easeOutCubic);
 
-  // Settle
-  await tween(ROTATION_SETTLE_MS * 0.3, t => {
-    for (let i = 0; i < 3; i++) {
-      floaters[i].x = targets[i].x;
-      floaters[i].y = targets[i].y;
-      floaters[i].scale = 1 + 0.15 * (1 - t);
-      floaters[i].shadow = t < 0.7;
-    }
-  }, easeOutBounce).promise;
+    startPos = floaters.map(fp => ({ x: fp.x, y: fp.y }));
 
-  for (const fp of floaters) removeFloatingPiece(fp);
-  if (ctx.boardGeneration !== gen) return; // board was replaced mid-rotation
+    // Arc around center
+    await token.tween(ROTATION_SETTLE_MS * 0.7, t => {
+      for (let i = 0; i < 3; i++) {
+        const a0 = Math.atan2(startPos[i].y - cy, startPos[i].x - cx);
+        const a1 = Math.atan2(targets[i].y - cy, targets[i].x - cx);
+        let da = a1 - a0;
+        if (clockwise && da > 0) da -= Math.PI * 2;
+        if (!clockwise && da < 0) da += Math.PI * 2;
+        const angle = a0 + da * t;
+        const r0 = Math.hypot(startPos[i].x - cx, startPos[i].y - cy);
+        const r1 = Math.hypot(targets[i].x - cx, targets[i].y - cy);
+        const radius = r0 + (r1 - r0) * t;
+        floaters[i].x = cx + Math.cos(angle) * radius;
+        floaters[i].y = cy + Math.sin(angle) * radius;
+      }
+    }, easeOutCubic);
+
+    // Settle
+    await token.tween(ROTATION_SETTLE_MS * 0.3, t => {
+      for (let i = 0; i < 3; i++) {
+        floaters[i].x = targets[i].x;
+        floaters[i].y = targets[i].y;
+        floaters[i].scale = 1 + 0.15 * (1 - t);
+        floaters[i].shadow = t < 0.7;
+      }
+    }, easeOutBounce);
+  } finally {
+    for (const fp of floaters) removeFloatingPiece(fp);
+  }
+
   clearAllOverrides();
 
   // Apply the Y-rotation to the ctx.grid: rotate the 3 cells
@@ -240,6 +282,7 @@ export async function animateYRotation(ctx, clockwise, originX, originY) {
     ctx.grid[yRing[1].col][yRing[1].row] = saved[2];
     ctx.grid[yRing[2].col][yRing[2].row] = saved[0];
   }
+  return true;
 }
 
 /**
@@ -247,7 +290,7 @@ export async function animateYRotation(ctx, clockwise, originX, originY) {
  * dramatic particle burst, pearl scale-pulse.
  */
 export async function animateBlackPearlCreation(ctx, bpResults) {
-  const gen = ctx.boardGeneration;
+  const token = ctx.token;
   const { originX, originY } = getOrigin();
 
   let queuedBlackpearls = 0;
@@ -266,7 +309,7 @@ export async function animateBlackPearlCreation(ctx, bpResults) {
     }
 
     // Phase 1: Ring implodes — starflower pieces shrink toward center (400ms)
-    await tween(400, t => {
+    await token.tween(400, t => {
       for (const pos of bp.ring) {
         if (ctx.grid[pos.col]?.[pos.row]) {
           const px = hexToPixel(pos.col, pos.row, originX, originY);
@@ -280,8 +323,7 @@ export async function animateBlackPearlCreation(ctx, bpResults) {
           });
         }
       }
-    }, easeOutCubic).promise;
-    if (ctx.boardGeneration !== gen) return;
+    }, easeOutCubic);
 
     // Clear the absorbed starflowers
     for (const pos of bp.ring) {
@@ -295,7 +337,7 @@ export async function animateBlackPearlCreation(ctx, bpResults) {
     spawnCreationParticles(centerPx.x, centerPx.y, 24);
 
     // Phase 3: Pearl scale-pulse (600ms)
-    await tween(600, t => {
+    await token.tween(600, t => {
       let scale;
       if (t < 0.2) {
         scale = 1 + 0.6 * (t / 0.2);
@@ -304,54 +346,17 @@ export async function animateBlackPearlCreation(ctx, bpResults) {
         scale = 1.6 - 0.6 * settleT;
       }
       setCellOverride(bp.center.col, bp.center.row, { scale });
-    }, easeOutCubic).promise;
-    if (ctx.boardGeneration !== gen) return;
+    }, easeOutCubic);
 
     clearAllOverrides();
   }
 
-  // Gravity and refill
-  const fallMap = computeFallDistances(ctx);
-  if (fallMap.length > 0) {
-    const maxDist = Math.max(...fallMap.map(f => f.dist));
-    const fallDuration = GRAVITY_MS * maxDist;
-
-    const fallers = fallMap.map(f => {
-      const startPx = hexToPixel(f.col, f.fromRow, originX, originY);
-      const endPx = hexToPixel(f.col, f.toRow, originX, originY);
-      setCellOverride(f.col, f.fromRow, { hidden: true });
-      return {
-        fp: addFloatingPiece({
-          x: startPx.x, y: startPx.y,
-          colorIndex: f.colorIndex,
-          special: f.special,
-          bombTimer: f.bombTimer,
-          scale: 1, alpha: 1, shadow: false,
-        }),
-        startY: startPx.y,
-        endY: endPx.y,
-      };
-    });
-
-    await tween(fallDuration, t => {
-      for (const f of fallers) {
-        f.fp.y = f.startY + (f.endY - f.startY) * t;
-      }
-    }, easeOutBounce).promise;
-    if (ctx.boardGeneration !== gen) { for (const f of fallers) removeFloatingPiece(f.fp); return; }
-
-    for (const f of fallers) removeFloatingPiece(f.fp);
-    clearAllOverrides();
-  }
-
-  applyGravity(ctx.grid, ctx.activeCols, ctx.activeRows);
-  const mode = getActiveGameMode();
-  const filled = fillEmpty(ctx.grid, ctx.activeCols, ctx.activeRows, undefined, mode.hasBombs && ctx.bombQueued, { starflowers: 0, blackpearls: queuedBlackpearls }, mode.isPuzzle);
-  if (mode.hasBombs && ctx.bombQueued && filled.length > 0) ctx.setBombQueued(false);
+  await animateGravity(ctx);
+  ctx.settleBoard({ starflowers: 0, blackpearls: queuedBlackpearls });
 }
 
 export async function animateGrandPoobahCreation(ctx, gpResults) {
-  const gen = ctx.boardGeneration;
+  const token = ctx.token;
   const { originX, originY } = getOrigin();
   let queuedGrandPoobahs = 0;
 
@@ -370,7 +375,7 @@ export async function animateGrandPoobahCreation(ctx, gpResults) {
     }
 
     // Phase 1: Ring implodes
-    await tween(400, t => {
+    await token.tween(400, t => {
       for (const pos of gp.ring) {
         if (ctx.grid[pos.col]?.[pos.row]) {
           const px = hexToPixel(pos.col, pos.row, originX, originY);
@@ -384,8 +389,7 @@ export async function animateGrandPoobahCreation(ctx, gpResults) {
           });
         }
       }
-    }, easeOutCubic).promise;
-    if (ctx.boardGeneration !== gen) return;
+    }, easeOutCubic);
 
     for (const pos of gp.ring) {
       if (ctx.grid[pos.col]?.[pos.row] && ctx.grid[pos.col][pos.row].special !== 'grandpoobah') {
@@ -398,7 +402,7 @@ export async function animateGrandPoobahCreation(ctx, gpResults) {
     spawnCreationParticles(centerPx.x, centerPx.y, 40);
 
     // Phase 3: Pulse
-    await tween(800, t => {
+    await token.tween(800, t => {
       let scale;
       if (t < 0.2) {
         scale = 1 + 0.8 * (t / 0.2);
@@ -407,68 +411,43 @@ export async function animateGrandPoobahCreation(ctx, gpResults) {
         scale = 1.8 - 0.8 * settleT;
       }
       setCellOverride(gp.center.col, gp.center.row, { scale });
-    }, easeOutCubic).promise;
-    if (ctx.boardGeneration !== gen) return;
+    }, easeOutCubic);
 
     clearAllOverrides();
   }
 
-  // Gravity and refill
-  const fallMap = computeFallDistances(ctx);
-  if (fallMap.length > 0) {
-    const maxDist = Math.max(...fallMap.map(f => f.dist));
-    const fallDuration = GRAVITY_MS * maxDist;
-
-    const fallers = fallMap.map(f => {
-      const startPx = hexToPixel(f.col, f.fromRow, originX, originY);
-      const endPx = hexToPixel(f.col, f.toRow, originX, originY);
-      setCellOverride(f.col, f.fromRow, { hidden: true });
-      return {
-        fp: addFloatingPiece({
-          x: startPx.x, y: startPx.y,
-          colorIndex: f.colorIndex,
-          special: f.special,
-          bombTimer: f.bombTimer,
-          scale: 1, alpha: 1, shadow: false,
-        }),
-        startY: startPx.y,
-        endY: endPx.y,
-      };
-    });
-
-    await tween(fallDuration, t => {
-      for (const f of fallers) f.fp.y = f.startY + (f.endY - f.startY) * t;
-    }, easeOutBounce).promise;
-    if (ctx.boardGeneration !== gen) { for (const f of fallers) removeFloatingPiece(f.fp); return; }
-
-    for (const f of fallers) removeFloatingPiece(f.fp);
-    clearAllOverrides();
-  }
-
-  applyGravity(ctx.grid, ctx.activeCols, ctx.activeRows);
-  const mode = getActiveGameMode();
-  const filled = fillEmpty(ctx.grid, ctx.activeCols, ctx.activeRows, undefined, mode.hasBombs && ctx.bombQueued, { starflowers: 0, blackpearls: 0, grandpoobahs: queuedGrandPoobahs }, mode.isPuzzle);
-  if (mode.hasBombs && ctx.bombQueued && filled.length > 0) ctx.setBombQueued(false);
-
-  ctx.handleGameWin();
+  await animateGravity(ctx);
+  ctx.settleBoard({ starflowers: 0, blackpearls: 0, grandpoobahs: queuedGrandPoobahs });
+  // The win itself is a state transition, so the caller makes it — this
+  // function used to reach back through the context and make it here, as its
+  // last statement, and game-state.js now does it on the line after the await.
+  // Same moment in the chain, on the right side of the boundary (hecknsic#66).
 }
 
-export async function handleOverAchiever(ctx) {
-  ctx.setState('gameover');
-  stopBed(1.5);
-  playOverAchiever();
-  const combinedId = ctx.getCombinedModeId();
-  ctx.clearGameState(combinedId);
-  // Score is committed when the user confirms their name in modal-over-achiever.
-
-  document.getElementById('go-oa-score').textContent = getScore().toLocaleString();
-  document.getElementById('go-oa-combo').textContent = `x${getMaxCombo()}`;
-  prepopulateNameInputs();
-  // Non-pausing by policy (js/modal.js): the explosion tween below runs
-  // *behind* this modal and only ticks on a running loop.
-  openModal('modal-over-achiever');
-
-  // Board explosion (reuse game-over explosion aesthetic)
+/**
+ * Blow the board apart: every remaining tile becomes a floater flying away
+ * from the centre, and the grid is emptied as it goes so drawFrame stops
+ * painting the tiles the floaters now stand in for.
+ *
+ * This is the whole of what the two end-of-run sequences ever had in
+ * animations.js. The rest of what handleGameOver()/handleOverAchiever() used
+ * to do from here — the state transition, clearing the save, the lifetime
+ * stats, stopping the floor, and the modal itself — was presentation and
+ * bookkeeping wearing an animation's clothes; it lives in game-state.js and
+ * (for anything with a DOM node in it) behind that module's host, which
+ * main.js registers. hecknsic#66.
+ *
+ * The 1500 ms tween is why the end-of-run modals are non-pausing in
+ * MODAL_POLICY: the caller shows the modal and then awaits this, so a pause
+ * would park the loop that advances the tween and the await would never
+ * settle.
+ *
+ * Deliberately NOT cancellable. It runs with `state === 'gameover'`, its only
+ * board write happens before the first await, and everything after the tween
+ * is floater cleanup that must happen whatever else did — so there is nothing
+ * for a cancellation seam to protect and a throw here would skip the cleanup.
+ */
+export async function explodeBoard(ctx) {
   const { originX, originY } = getOrigin();
   const floaters = [];
 
@@ -476,6 +455,8 @@ export async function handleOverAchiever(ctx) {
     for (let r = 0; r < ctx.activeRows; r++) {
       if (ctx.grid[c][r]) {
         const px = hexToPixel(c, r, originX, originY);
+
+        // Fly away from a rough board centre.
         const dx = px.x - (originX + (ctx.activeCols * 30));
         const dy = px.y - (originY + (ctx.activeRows * 30));
         const angle = Math.atan2(dy, dx);
@@ -488,6 +469,7 @@ export async function handleOverAchiever(ctx) {
           scale: 1, alpha: 1, shadow: false
         });
 
+        // vx/vy are this animation's own; the renderer does not read them.
         floaters.push({
           fp,
           vx: Math.cos(angle) * speed,
@@ -495,6 +477,7 @@ export async function handleOverAchiever(ctx) {
           rot: (Math.random() - 0.5) * 0.5
         });
 
+        // Clear the cell immediately so drawFrame doesn't show it twice.
         ctx.grid[c][r] = null;
       }
     }
@@ -504,104 +487,13 @@ export async function handleOverAchiever(ctx) {
     for (const item of floaters) {
       item.fp.x += item.vx;
       item.fp.y += item.vy;
-      item.fp.vy += 0.5;
-      item.fp.alpha = 1 - t;
+      item.fp.vy += 0.5;      // gravity
+      item.fp.alpha = 1 - t;  // fade out
     }
   }, easeOutCubic).promise;
 
   for (const item of floaters) {
     removeFloatingPiece(item.fp);
-  }
-}
-
-export async function handleGameOver(ctx, isSessionEnd = false) {
-  ctx.setState('gameover');
-  const combinedId = ctx.getCombinedModeId();
-  ctx.clearGameState(combinedId);
-  recordGameEnd(getMaxCombo());
-  // A real game over is two events: the detonation, then the aftermath tolls a
-  // beat behind it. A peaceful chill-session end is the tolls alone — nothing
-  // exploded. The floor drops away under both.
-  stopBed(1.5);
-  playGameOver(isSessionEnd);
-  // Score is committed when the user confirms their name in modal-gameover
-  // (or already committed by btn-confirm-end before this runs, for chill).
-
-  // 1. Show Game Over Modal (only if not a peaceful chill session end)
-  const gameOverMsgEl = document.querySelector('.gameover-message');
-  if (!isSessionEnd) {
-    document.querySelector('#modal-gameover h2').textContent = 'GAME OVER';
-    document.querySelector('#modal-gameover h2').style.color = '#ff4444';
-    document.querySelector('#modal-gameover h2').style.borderColor = '#ff4444';
-    if (gameOverMsgEl) {
-      gameOverMsgEl.style.display = 'block';
-      gameOverMsgEl.textContent = '💣 A bomb exploded!';
-    }
-
-    document.getElementById('go-score').textContent = getScore().toLocaleString();
-    document.getElementById('go-combo').textContent = `x${getMaxCombo()}`;
-    prepopulateNameInputs();
-    // Non-pausing by policy (js/modal.js) — see the over-achiever note above.
-    openModal('modal-gameover');
-  }
-
-  // 2. Explode the board!
-  const { originX, originY } = getOrigin();
-  const floaters = [];
-
-  for (let c = 0; c < ctx.activeCols; c++) {
-    for (let r = 0; r < ctx.activeRows; r++) {
-      if (ctx.grid[c][r]) {
-        const px = hexToPixel(c, r, originX, originY);
-        
-        // Create a floater that flies away from center
-        const dx = px.x - (originX + (ctx.activeCols * 30)); // Rough center approx
-        const dy = px.y - (originY + (ctx.activeRows * 30));
-        const angle = Math.atan2(dy, dx);
-        const speed = 10 + Math.random() * 20;
-
-        const fp = addFloatingPiece({
-          x: px.x, y: px.y,
-          colorIndex: ctx.grid[c][r].colorIndex,
-          special: ctx.grid[c][r].special,
-          scale: 1, alpha: 1, shadow: false
-        });
-        
-        // We'll attach velocity to the floater object strictly for this animation loop
-        // (renderer doesn't use vx/vy, so we'll tween or manually update)
-        // Let's use a quick tween to blast them off
-        floaters.push({
-            fp, 
-            vx: Math.cos(angle) * speed, 
-            vy: Math.sin(angle) * speed,
-            rot: (Math.random() - 0.5) * 0.5
-        });
-        
-        // Clear ctx.grid cell immediately so drawFrame doesn't show it
-        ctx.grid[c][r] = null;
-      }
-    }
-  }
-
-  // Animate the explosion
-  // We can do a custom loop or just a tween that updates them
-  await tween(1500, t => {
-    for (const item of floaters) {
-      item.fp.x += item.vx;
-      item.fp.y += item.vy;
-      item.fp.vy += 0.5; // Gravity
-      item.fp.alpha = 1 - t; // Fade out
-      // item.fp.rotation += item.rot; // Renderer doesn't support rotation yet, but that's fine
-    }
-  }, easeOutCubic).promise;
-
-  // Cleanup
-  for (const item of floaters) {
-    removeFloatingPiece(item.fp);
-  }
-
-  if (isSessionEnd) {
-    ctx.resetGame();
   }
 }
 
@@ -611,7 +503,7 @@ export async function handleGameOver(ctx, isSessionEnd = false) {
  * @param {Array<{center, ring, ringColor}>} sfResults
  */
 export async function animateStarflowerCreation(ctx, sfResults) {
-  const gen = ctx.boardGeneration;
+  const token = ctx.token;
   // Track for puzzle goals
   for (const _ of sfResults) onStarflowerCreated();
 
@@ -629,7 +521,7 @@ export async function animateStarflowerCreation(ctx, sfResults) {
   const { originX, originY } = getOrigin();
 
   // Phase 1: Flash ring tiles bright (200ms)
-  await tween(200, t => {
+  await token.tween(200, t => {
     for (const pos of allRing) {
       if (ctx.grid[pos.col]?.[pos.row]) {
         setCellOverride(pos.col, pos.row, {
@@ -637,11 +529,10 @@ export async function animateStarflowerCreation(ctx, sfResults) {
         });
       }
     }
-  }, easeOutCubic).promise;
-  if (ctx.boardGeneration !== gen) return;
+  }, easeOutCubic);
 
   // Phase 2: Shrink and fade ring tiles (300ms)
-  await tween(300, t => {
+  await token.tween(300, t => {
     for (const pos of allRing) {
       if (ctx.grid[pos.col]?.[pos.row]) {
         setCellOverride(pos.col, pos.row, {
@@ -650,8 +541,7 @@ export async function animateStarflowerCreation(ctx, sfResults) {
         });
       }
     }
-  }, easeOutCubic).promise;
-  if (ctx.boardGeneration !== gen) return;
+  }, easeOutCubic);
 
   // Clear ring tiles
   for (const pos of allRing) {
@@ -685,7 +575,7 @@ export async function animateStarflowerCreation(ctx, sfResults) {
   }
 
   // Star piece pulse: scale up big then settle
-  await tween(500, t => {
+  await token.tween(500, t => {
     for (const center of centers) {
       let scale;
       if (t < 0.25) {
@@ -696,54 +586,16 @@ export async function animateStarflowerCreation(ctx, sfResults) {
       }
       setCellOverride(center.col, center.row, { scale });
     }
-  }, easeOutCubic).promise;
-  if (ctx.boardGeneration !== gen) return;
+  }, easeOutCubic);
 
   clearAllOverrides();
 
-  // Animated gravity
-  const fallMap = computeFallDistances(ctx);
-  if (fallMap.length > 0) {
-    const maxDist = Math.max(...fallMap.map(f => f.dist));
-    const fallDuration = GRAVITY_MS * maxDist;
-
-    const fallers = fallMap.map(f => {
-      const startPx = hexToPixel(f.col, f.fromRow, originX, originY);
-      const endPx = hexToPixel(f.col, f.toRow, originX, originY);
-      setCellOverride(f.col, f.fromRow, { hidden: true });
-      return {
-        fp: addFloatingPiece({
-          x: startPx.x, y: startPx.y,
-          colorIndex: f.colorIndex,
-          special: f.special,
-          bombTimer: f.bombTimer,
-          scale: 1, alpha: 1, shadow: false,
-        }),
-        startY: startPx.y,
-        endY: endPx.y,
-      };
-    });
-
-    await tween(fallDuration, t => {
-      for (const f of fallers) {
-        f.fp.y = f.startY + (f.endY - f.startY) * t;
-      }
-    }, easeOutBounce).promise;
-    if (ctx.boardGeneration !== gen) { for (const f of fallers) removeFloatingPiece(f.fp); return; }
-
-    for (const f of fallers) removeFloatingPiece(f.fp);
-    clearAllOverrides();
-  }
-
-  applyGravity(ctx.grid, ctx.activeCols, ctx.activeRows);
-  {
-    const mode = getActiveGameMode();
-    const filled = fillEmpty(ctx.grid, ctx.activeCols, ctx.activeRows, undefined, mode.hasBombs && ctx.bombQueued, { starflowers: queuedStarflowers, blackpearls: 0 }, mode.isPuzzle);
-    if (mode.hasBombs && ctx.bombQueued && filled.length > 0) ctx.setBombQueued(false);
-  }
+  await animateGravity(ctx);
+  ctx.settleBoard({ starflowers: queuedStarflowers, blackpearls: 0 });
 }
 
-export async function runCascade(ctx, initialMatches, gen = ctx.boardGeneration) {
+export async function runCascade(ctx, initialMatches) {
+  const token = ctx.token;
   const pendingMatches = new Set(initialMatches);
   const multiplierClusters = detectMultiplierClusters(ctx.grid);
 
@@ -849,8 +701,7 @@ export async function runCascade(ctx, initialMatches, gen = ctx.boardGeneration)
       flashScreenOverlay(rr, gg, bb, 0.18, 35);
       spawnRingShockwave(cx, cy, 200, rr, gg, bb);
       spawnRingShockwave(cx, cy, 140, rr, gg, bb);
-      await new Promise(res => setTimeout(res, 250));
-      if (ctx.boardGeneration !== gen) return;
+      await token.delay(250);
     }
   } else if (explosionSources.length > 0) {
     let sumX = 0, sumY = 0;
@@ -866,7 +717,7 @@ export async function runCascade(ctx, initialMatches, gen = ctx.boardGeneration)
     spawnRingShockwave(cx, cy, 260, 255, 200, 80);
     spawnRingShockwave(cx, cy, 180, 255, 240, 160);
 
-    await tween(280, t => {
+    await token.tween(280, t => {
       for (let c = 0; c < ctx.activeCols; c++) {
         for (let r = 0; r < ctx.activeRows; r++) {
           if (!ctx.grid[c]?.[r]) continue;
@@ -879,8 +730,7 @@ export async function runCascade(ctx, initialMatches, gen = ctx.boardGeneration)
         }
       }
       requestRedraw();
-    }, linear).promise;
-    if (ctx.boardGeneration !== gen) return;
+    }, linear);
     clearAllOverrides();
   }
 
@@ -907,14 +757,13 @@ export async function runCascade(ctx, initialMatches, gen = ctx.boardGeneration)
         spawnExplosionParticles(bombPx.x, bombPx.y, 50);
         spawnRingShockwave(bombPx.x, bombPx.y, 220, 255, 60, 30);
         spawnRingShockwave(bombPx.x, bombPx.y, 130, 255, 120, 60);
-        await new Promise(res => setTimeout(res, 200));
-        if (ctx.boardGeneration !== gen) return;
+        await token.delay(200);
       }
     }
   }
 
   // ── Flash matched cells ────────────────────────────────────
-  await tween(MATCH_FLASH_MS, t => {
+  await token.tween(MATCH_FLASH_MS, t => {
     for (const key of matches) {
       const [c, r] = key.split(',').map(Number);
       if (ctx.grid[c]?.[r]) {
@@ -929,8 +778,7 @@ export async function runCascade(ctx, initialMatches, gen = ctx.boardGeneration)
         }
       }
     }
-  }, easeOutCubic).promise;
-  if (ctx.boardGeneration !== gen) return;
+  }, easeOutCubic);
 
   // ── Remove matched cells ───────────────────────────────────
   const points = awardMatch(matches.size, scoreBonus);
@@ -958,65 +806,70 @@ export async function runCascade(ctx, initialMatches, gen = ctx.boardGeneration)
   // ── Starflower detection at cleared positions ──────────────
   const sfMid = detectStarflowersAtCleared(ctx.grid, matches);
   if (sfMid.length > 0) {
+    // Both of these carry the same token, so a board replaced inside one of
+    // them throws straight through this frame — there is nothing left to check
+    // on the way back out.
     await animateStarflowerCreation(ctx, sfMid);
-    if (ctx.boardGeneration !== gen) return;
 
     const bpMid = detectBlackPearls(ctx.grid);
-    if (bpMid.length > 0) {
-      await animateBlackPearlCreation(ctx, bpMid);
-      if (ctx.boardGeneration !== gen) return;
-    }
+    if (bpMid.length > 0) await animateBlackPearlCreation(ctx, bpMid);
   }
 
-  // ── Gravity: animate pieces falling ────────────────────────
+  // ── Gravity, then commit it and fill the holes ─────────────
+  await animateGravity(ctx);
+  ctx.settleBoard();
+  requestRedraw();
+}
+
+/**
+ * Float everything that has a hole under it down to where it lands.
+ *
+ * This is the *animation* of gravity and nothing else: the board is untouched
+ * until the caller commits the move with ctx.settleBoard(), which drops the
+ * cells for real and fills the gaps. Every clear in the game ends this way, so
+ * this used to be four hand-copied blocks — one per creation animator plus the
+ * cascade — which is also why only three of the four bothered to release their
+ * floating pieces when the board was replaced mid-fall.
+ *
+ * @throws {Cancelled} if the board is replaced while the pieces are falling.
+ *         The floaters are released either way.
+ */
+async function animateGravity(ctx) {
   const fallMap = computeFallDistances(ctx);
+  if (fallMap.length === 0) return;
 
-  if (fallMap.length > 0) {
-    const maxDist = Math.max(...fallMap.map(f => f.dist));
-    const fallDuration = GRAVITY_MS * maxDist;
-    const { originX, originY } = getOrigin();
+  const { originX, originY } = getOrigin();
+  const maxDist = Math.max(...fallMap.map(f => f.dist));
+  const fallDuration = GRAVITY_MS * maxDist;
 
-    const fallers = fallMap.map(f => {
-      const startPx = hexToPixel(f.col, f.fromRow, originX, originY);
-      const endPx = hexToPixel(f.col, f.toRow, originX, originY);
-      setCellOverride(f.col, f.fromRow, { hidden: true });
-      return {
-        fp: addFloatingPiece({
-          x: startPx.x,
-          y: startPx.y,
-          colorIndex: f.colorIndex,
-          special: f.special,
-          bombTimer: f.bombTimer,
-          scale: 1,
-          alpha: 1,
-          shadow: false,
-        }),
-        startY: startPx.y,
-        endY: endPx.y,
-        x: startPx.x,
-      };
-    });
+  const fallers = fallMap.map(f => {
+    const startPx = hexToPixel(f.col, f.fromRow, originX, originY);
+    const endPx = hexToPixel(f.col, f.toRow, originX, originY);
+    setCellOverride(f.col, f.fromRow, { hidden: true });
+    return {
+      fp: addFloatingPiece({
+        x: startPx.x, y: startPx.y,
+        colorIndex: f.colorIndex,
+        special: f.special,
+        bombTimer: f.bombTimer,
+        scale: 1, alpha: 1, shadow: false,
+      }),
+      startY: startPx.y,
+      endY: endPx.y,
+    };
+  });
 
-    await tween(fallDuration, t => {
+  try {
+    await ctx.token.tween(fallDuration, t => {
       for (const f of fallers) {
         f.fp.y = f.startY + (f.endY - f.startY) * t;
       }
-    }, easeOutBounce).promise;
-    if (ctx.boardGeneration !== gen) return;
-
+    }, easeOutBounce);
+  } finally {
     for (const f of fallers) removeFloatingPiece(f.fp);
-    clearAllOverrides();
   }
 
-  // Commit gravity and fill
-  applyGravity(ctx.grid, ctx.activeCols, ctx.activeRows);
-  {
-    const mode = getActiveGameMode();
-    const filled = fillEmpty(ctx.grid, ctx.activeCols, ctx.activeRows, undefined, mode.hasBombs && ctx.bombQueued, undefined, mode.isPuzzle);
-    if (mode.hasBombs && ctx.bombQueued && filled.length > 0) ctx.setBombQueued(false);
-  }
-  requestRedraw();
-
+  clearAllOverrides();
 }
 
 /**
@@ -1046,8 +899,4 @@ function computeFallDistances(ctx) {
     }
   }
   return result;
-}
-
-export function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
