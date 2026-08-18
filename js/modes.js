@@ -28,19 +28,20 @@ export function loadActiveMode() {
 export function getActiveGameMode()   { return GAME_MODES[activeGameModeId] || GAME_MODES.arcade; }
 export function getActiveMatchMode()  { return MATCH_MODES[activeMatchModeId] || MATCH_MODES.classic; }
 export function getActiveGameModeId() { return activeGameModeId; }
-export function getActiveMatchModeId() { return activeMatchModeId; }
-// Used for high score storage keys:
+
+/**
+ * Storage-key component, and FROZEN SCHEMA. Match mode collapsed to a single
+ * 'classic' entry long ago, but the `_classic` suffix is baked into every
+ * persisted key already on players' devices
+ * (arcade.v1.hecknsic.gameState.arcade_classic, and the high-score keys).
+ * The unused setter/list/id accessors around it were deleted; this string
+ * must not change without a migration.
+ */
 export function getCombinedModeId() { return `${activeGameModeId}_${activeMatchModeId}`; }
 
 export function getAllGameModes()      { return Object.values(GAME_MODES); }
-export function getAllMatchModes()     { return Object.values(MATCH_MODES); }
 
 export function setActiveGameMode(id) {
   activeGameModeId = id;
   Arcade.state.set('activeGameMode', id);
-}
-
-export function setActiveMatchMode(id) {
-  activeMatchModeId = id;
-  Arcade.state.set('activeMatchMode', id);
 }

@@ -93,7 +93,7 @@ let graphMode = false;
 // AudioContext). Never a throw — these are called from the game loop, the
 // input path and the move path.
 
-export function sfx(name, opts) {
+function sfx(name, opts) {
   if (!graphMode) return;
   const a = audio();
   if (a) a.play(name, opts);

@@ -86,9 +86,6 @@ export function hasActiveTweens() {
 // ─── Easing functions ───────────────────────────────────────────
 
 export function easeOutCubic(t) { return 1 - (1 - t) ** 3; }
-export function easeInOutCubic(t) {
-  return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
-}
 export function easeOutBounce(t) {
   if (t < 1 / 2.75) return 7.5625 * t * t;
   if (t < 2 / 2.75) return 7.5625 * (t -= 1.5 / 2.75) * t + 0.75;

@@ -29,8 +29,9 @@ export function isPowerSaving() { return saving; }
 /** Subscribe to transitions. Called with the new value, only when it changes. */
 export function onPowerSaverChange(fn) { listeners.push(fn); }
 
-/** Re-read and fan out. Exported for tests; wired to onSettingsChange below. */
-export function refreshPowerSaver() {
+/** Re-read and fan out. Wired to onSettingsChange below — that subscription
+ *  is how the suite drives it, so it needs no export of its own. */
+function refreshPowerSaver() {
   const next = readSetting();
   if (next === saving) return saving;
   saving = next;

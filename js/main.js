@@ -9,28 +9,17 @@
  */
 
 import {
-  GRID_COLS, GRID_ROWS,
-  MATCH_FLASH_MS, GRAVITY_MS,
-  ROTATION_POP_MS, ROTATION_SETTLE_MS,
-  BOMB_SPAWN_INTERVAL, BOMB_INITIAL_TIMER,
+  GRID_COLS, GRID_ROWS, BOMB_INITIAL_TIMER,
 } from './constants.js';
+import { createGrid, findMatchesForMode } from './board.js';
 import {
-  createGrid, rotateCluster, rotateRing,
-  findMatches, findMatchesForMode,
-  applyGravity, fillEmpty,
-} from './board.js';
-import {
-  initRenderer, resize, drawFrame, getOrigin, getBoardScale,
+  initRenderer, resize, drawFrame, getOrigin,
   setCellOverride, clearCellOverride, clearAllOverrides,
-  addFloatingPiece, removeFloatingPiece,
-  spawnCreationParticles, spawnScorePopup,
-  spawnColorNukeParticles, spawnExplosionParticles,
-  spawnRingShockwave, flashScreenOverlay,
   requestRedraw, clearDirty, getIsDirty, hasActiveRendererAnimations,
   setActiveGridSize, setFontScale,
 } from './renderer.js';
 import {
-  loadActiveMode, getActiveGameMode, getActiveMatchMode,
+  loadActiveMode, getActiveGameMode,
   getActiveGameModeId, getCombinedModeId,
   setActiveGameMode, getAllGameModes
 } from './modes.js';
@@ -41,27 +30,27 @@ import {
 } from './input.js';
 import { registerFrameLoop, wakeFrameLoop } from './frame.js';
 import { openModal, closeModal, registerModalHost } from './modal.js';
+import { shakeRefusal, prepopulateNameInputs } from './ui.js';
 
 import {
   animateClusterRotation, animateRingRotation, animateYRotation,
   animateBlackPearlCreation, animateGrandPoobahCreation, animateStarflowerCreation,
-  handleOverAchiever, handleGameOver, runCascade, computeFallDistances, delay
+  handleOverAchiever, handleGameOver, runCascade, delay
 } from './animations.js';
-import { tween, updateTweens, suspendTweenClock, easeOutCubic, easeOutBounce, hasActiveTweens, linear } from './tween.js';
+import { tween, updateTweens, suspendTweenClock, hasActiveTweens, linear } from './tween.js';
 import {
-  resetScore, awardMatch, advanceChain, resetChain,
+  resetScore, advanceChain, resetChain,
   updateDisplayScore, restoreScore,
   getScore, getDisplayScore, getChainLevel, getComboCount, getMaxCombo, isScoreAnimating
 } from './score.js';
 import {
-  detectStarflowers, detectStarflowersAtCleared,
-  detectBlackPearls, detectMultiplierClusters, detectGrandPoobahs,
-  detectGrandPoobahRing, tickBombs, countBombs,
+  detectStarflowers, detectBlackPearls, detectGrandPoobahs,
+  detectGrandPoobahRing, tickBombs,
 } from './specials.js';
 import {
   saveGameState, loadGameState, clearGameState,
   addHighScore, getHighScores,
-  getPlayerName, setPlayerName,
+  setPlayerName,
   loadSettings, saveSettings,
   recordModeScore, seedRecordsFromScores,
 } from './storage.js';
@@ -73,8 +62,7 @@ import {
 } from './audio.js';
 import {
   initPuzzleModeUI, showPuzzleSelector, registerPuzzleCallbacks,
-  clearActivePuzzle, getActivePuzzle, getPuzzleMovesLeft,
-  onPuzzleMove, onStarflowerCreated,
+  clearActivePuzzle, getActivePuzzle, onPuzzleMove,
 } from './puzzle-mode.js';
 
 
@@ -115,7 +103,7 @@ let boardGeneration = 0;  // incremented on grid replacement; stale async chains
 // ─── Bootstrap ──────────────────────────────────────────────────
 
 /** True while the board is mid-animation (rotating, cascading). UI should not restart. */
-export function isProcessing() {
+function isProcessing() {
   return state === 'rotating' || state === 'cascading';
 }
 
@@ -148,12 +136,21 @@ registerModalHost({
   resume: resumeFromPause,
 });
 
-// DEBUG: Expose internals
-window.debug = {
-  getGrid: () => grid,
-  getState: () => state,
-  runPostRotation: () => postRotationCheck(boardGeneration),
-};
+// Developer hook, opt-in only: load the game with `?debug` or `#debug`.
+//
+// It was unconditional, which put a live handle on the state machine —
+// including runPostRotation(), which drives the cascade — on every player's
+// page, and left `window.debug` claimed against anything else that wants the
+// name. Nothing in the game or the suite reads it, so a gate costs nothing;
+// the URL is the gate because it is the one knob available from inside the
+// launcher's iframe.
+if (/(^|[?&#])debug\b/.test(window.location.search + window.location.hash)) {
+  window.debug = {
+    getGrid: () => grid,
+    getState: () => state,
+    runPostRotation: () => postRotationCheck(boardGeneration),
+  };
+}
 
 const canvas = document.getElementById('game');
 initRenderer(canvas);
@@ -294,12 +291,11 @@ document.getElementById('btn-close-scores').addEventListener('click', (e) => {
 
 // Shared guard: shake a button and bail if board is mid-animation.
 // Prevents restart clicks during cascade/rotation feeling like they're ignored.
+// The shake itself lives in js/ui.js — puzzle-mode.js refuses the same
+// way and the gesture is fiddly enough to be worth having exactly one of.
 function guardedAction(btn, action) {
   if (isProcessing()) {
-    btn.classList.remove('shake-animation');
-    void btn.offsetWidth; // force reflow to restart animation
-    btn.classList.add('shake-animation');
-    setTimeout(() => btn.classList.remove('shake-animation'), 400);
+    shakeRefusal(btn);
     return;
   }
   action();
@@ -328,13 +324,6 @@ function toggleModeDropdown() {
   }
   requestRedraw();
 }
-
-// Close dropdown if clicking elsewhere
-window.addEventListener('click', (e) => {
-  if (!logoDropdown.contains(e.target) && state === 'idle') {
-    // Rely on canvas click handler instead since standard clicks intercept on canvas
-  }
-});
 
 // Game HUD logo opens the mode dropdown
 document.getElementById('game-hud-logo')?.addEventListener('click', (e) => {
@@ -530,29 +519,63 @@ function updateControlsVisibility() {
 
 const MODE_LABELS = { arcade: '💣 Arcade', chill: '✨ Chill', puzzle: '🧩 Puzzle' };
 
+// updateGameHUD() runs on every rendered frame, so it used to do three
+// getElementById lookups and three unconditional textContent/dataset writes per
+// frame, for values that change a few times a second at most — and a write is a
+// style invalidation whether or not the string actually differs.
+//
+// The three nodes are static in index.html and nothing ever replaces them, so
+// they are resolved once and kept. Resolution is lazy only so that this block
+// does not have to sit below the DOM-ready point; the first caller is
+// syncHUDForMode() at bootstrap.
+const hudEls = { resolved: false, hud: null, mode: null, score: null };
+function hudElements() {
+  if (!hudEls.resolved) {
+    hudEls.resolved = true;
+    hudEls.hud   = document.getElementById('game-hud');
+    hudEls.mode  = document.getElementById('game-hud-mode');
+    hudEls.score = document.getElementById('hud-score-value');
+  }
+  return hudEls;
+}
+
+// The score readout is the one node main.js writes exclusively, so the last
+// value can be remembered — which also skips the toLocaleString() on an
+// unchanged frame. The mode name and the layout attribute are NOT exclusive:
+// puzzle-mode.js's showPuzzleHUD() writes both directly. Those are therefore
+// compared against what the DOM actually holds rather than against a
+// remembered value, because a remembered value would go stale the moment a
+// puzzle started and the next real change would be skipped.
+let hudLastScore = null;
+
 /** Sync the HTML game-hud to the current mode and score. */
 function updateGameHUD() {
   const mode = getActiveGameMode();
-  const hud = document.getElementById('game-hud');
-  if (!hud) return;
+  const els = hudElements();
+  if (!els.hud) return;
 
   // Skip score updates when puzzle mode owns the right-side group
   if (mode.isPuzzle) return;
 
-  hud.dataset.mode = mode.id;
-  const modeEl    = document.getElementById('game-hud-mode');
-  const scoreEl   = document.getElementById('hud-score-value');
+  if (els.hud.dataset.mode !== mode.id) els.hud.dataset.mode = mode.id;
 
-  if (modeEl)  modeEl.textContent  = MODE_LABELS[mode.id] || mode.label;
-  if (scoreEl) scoreEl.textContent = getDisplayScore().toLocaleString();
+  const label = MODE_LABELS[mode.id] || mode.label;
+  if (els.mode && els.mode.textContent !== label) els.mode.textContent = label;
+
+  const score = getDisplayScore();
+  if (els.score && score !== hudLastScore) {
+    els.score.textContent = score.toLocaleString();
+    hudLastScore = score;
+  }
 }
 
 /** Called when switching modes to reconfigure the HUD layout. */
 function syncHUDForMode(modeId) {
-  const hud = document.getElementById('game-hud');
+  const els = hudElements();
+  const hud = els.hud;
   if (hud) hud.dataset.mode = modeId;
 
-  const modeEl      = document.getElementById('game-hud-mode');
+  const modeEl      = els.mode;
   const subtitleEl   = document.getElementById('game-hud-subtitle');
   const scoreGroup  = document.getElementById('hud-score-group');
   const puzzleGroup = document.getElementById('hud-puzzle-group');
@@ -608,7 +631,6 @@ if (hasUrlConfig) {
   window.history.replaceState({ path: cleanUrl }, '', cleanUrl);
 }
 const activeGameMode = getActiveGameMode();
-const activeMatchMode = getActiveMatchMode();
 
 if (activeGameMode.id === 'chill') {
   document.getElementById('dropdown-btn-end-session').classList.remove('hidden');
@@ -623,7 +645,6 @@ if (savedState) {
   restoreScore(savedState);
   moveCount = savedState.moveCount || 0;
   state = 'idle';
-  console.log('Game state loaded.');
 } else {
   resetScore();
   grid = createGrid();
@@ -1242,15 +1263,6 @@ async function startCascade() {
 }
 
 // ─── Helpers ────────────────────────────────────────────────────
-
-/** Prepopulate all name inputs with the sticky player name. */
-function prepopulateNameInputs() {
-  const name = getPlayerName();
-  for (const id of ['go-name', 'gw-name', 'oa-name', 'es-name']) {
-    const el = document.getElementById(id);
-    if (el) el.value = name;
-  }
-}
 
 /** Read the name from an input and persist it as the sticky player name. */
 function setNameFromInput(inputId) {

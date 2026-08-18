@@ -4,7 +4,7 @@ import {
 } from './constants.js';
 import { rotateCluster, rotateRing, applyGravity, fillEmpty } from './board.js';
 import {
-  setCellOverride, clearCellOverride, clearAllOverrides,
+  setCellOverride, clearAllOverrides,
   addFloatingPiece, removeFloatingPiece,
   spawnCreationParticles, spawnRingShockwave, requestRedraw,
   spawnColorNukeParticles, spawnExplosionParticles, spawnScorePopup, flashScreenOverlay,
@@ -13,23 +13,15 @@ import {
 import { getActiveGameMode } from './modes.js';
 import { hexToPixel, getNeighbors } from './hex-math.js';
 import { tween, easeOutCubic, easeOutBounce, linear } from './tween.js';
-import { awardMatch, advanceChain, getDisplayScore, getChainLevel, getScore, getComboCount, getMaxCombo } from './score.js';
+import { awardMatch, getChainLevel, getScore, getMaxCombo } from './score.js';
 import {
   detectStarflowersAtCleared, detectBlackPearls, detectMultiplierClusters
 } from './specials.js';
 import { onStarflowerCreated } from './puzzle-mode.js';
 import { openModal } from './modal.js';
-import { getPlayerName, recordGameEnd } from './storage.js';
+import { recordGameEnd } from './storage.js';
+import { prepopulateNameInputs } from './ui.js';
 import { playGameOver, playOverAchiever, stopBed } from './audio.js';
-
-function prepopulateNameInputs() {
-  const name = getPlayerName();
-  for (const id of ['go-name', 'gw-name', 'oa-name', 'es-name']) {
-    const el = document.getElementById(id);
-    if (el) el.value = name;
-  }
-}
-
 
 /** Animate 3-hex cluster rotation (original pop-thunk) */
 export async function animateClusterRotation(ctx, clockwise, originX, originY) {
@@ -1031,7 +1023,7 @@ export async function runCascade(ctx, initialMatches, gen = ctx.boardGeneration)
  * Compute how far each non-null cell needs to fall.
  * Returns [{ col, fromRow, toRow, dist, colorIndex }]
  */
-export function computeFallDistances(ctx) {
+function computeFallDistances(ctx) {
   const result = [];
   for (let c = 0; c < ctx.activeCols; c++) {
     if (!ctx.grid[c]) continue;

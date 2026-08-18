@@ -11,8 +11,8 @@
  * No server required.
  */
 
-import { encodePuzzleBoard, decodePuzzleBoard, describeGoal } from './puzzles.js';
-import { GRID_COLS, GRID_ROWS, PIECE_COLORS } from './constants.js';
+import { encodePuzzleBoard } from './puzzles.js';
+import { GRID_COLS, GRID_ROWS } from './constants.js';
 import { openModal, closeModal } from './modal.js';
 
 // ─── Share code encode/decode ───────────────────────────────────

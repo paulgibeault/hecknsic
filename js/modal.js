@@ -182,8 +182,3 @@ export function closeModal(id) {
 export function isModalOpen(id) {
   return openIds.has(id);
 }
-
-/** @returns {string[]} open modal ids, for tests and debugging. */
-export function getOpenModals() {
-  return [...openIds];
-}

@@ -10,7 +10,6 @@
 
 import {
   PUZZLE_SECTORS,
-  ALL_PUZZLES,
   getPuzzleById,
   getNextPuzzle,
   decodePuzzleBoard,
@@ -31,6 +30,7 @@ import {
 import { getTodaysPuzzle, getDailyDateString, getDailyProgress } from './daily-puzzle.js';
 import { showPuzzleEditor, registerEditorCallbacks, initPuzzleEditorUI } from './puzzle-editor.js';
 import { openModal, closeModal } from './modal.js';
+import { shakeRefusal } from './ui.js';
 
 // ─── Active puzzle state ────────────────────────────────────────
 
@@ -50,17 +50,14 @@ let _isProcessing  = () => false;
 
 /**
  * Refuse a board-replacing click while the board is animating, shaking the
- * button so the refusal reads as deliberate. Mirrors guardedAction in main.js.
+ * button so the refusal reads as deliberate. The mirror of guardedAction in
+ * main.js — the two differ only in busy-predicate and return shape, and share
+ * the shake itself through js/ui.js.
  * @returns {boolean} true when the caller must bail.
  */
 function refuseWhileProcessing(btn) {
   if (!_isProcessing()) return false;
-  if (btn) {
-    btn.classList.remove('shake-animation');
-    void btn.offsetWidth; // force reflow to restart animation
-    btn.classList.add('shake-animation');
-    setTimeout(() => btn.classList.remove('shake-animation'), 400);
-  }
+  shakeRefusal(btn);
   return true;
 }
 
@@ -72,9 +69,6 @@ export function registerPuzzleCallbacks(onLoad, onEnd) {
 }
 
 export function getActivePuzzle()   { return activePuzzle; }
-export function getPuzzleMovesLeft(){ return activePuzzle ? activePuzzle.moveLimit - movesUsed : 0; }
-export function getPuzzleMovesUsed(){ return movesUsed; }
-export function getPuzzleStats()    { return stats; }
 
 /**
  * Load and start a puzzle by id or by puzzle object directly (custom/daily).
