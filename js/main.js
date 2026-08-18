@@ -46,7 +46,7 @@ import {
   animateBlackPearlCreation, animateGrandPoobahCreation, animateStarflowerCreation,
   handleOverAchiever, handleGameOver, runCascade, computeFallDistances, delay
 } from './animations.js';
-import { tween, updateTweens, easeOutCubic, easeOutBounce, hasActiveTweens, linear } from './tween.js';
+import { tween, updateTweens, suspendTweenClock, easeOutCubic, easeOutBounce, hasActiveTweens, linear } from './tween.js';
 import {
   resetScore, awardMatch, advanceChain, resetChain,
   updateDisplayScore, restoreScore,
@@ -150,8 +150,11 @@ initInput(canvas);
 // dt doesn't jump after a long suspension.
 if (typeof window !== 'undefined' && window.Arcade) {
   Arcade.onSuspend(() => {
-    // Arcade.loop parks itself on suspend; this only records intent.
+    // Arcade.loop parks itself on suspend; this only records intent. The loop
+    // may be cancelled before gameLoop runs again, so parkFrameLoop() is not
+    // guaranteed to fire — stop the tween clock here too.
     isPaused = true;
+    suspendTweenClock();
   });
   Arcade.onResume(() => {
     isPaused = false;
@@ -661,6 +664,10 @@ function parkFrameLoop() {
   // the old timestamp here would hand updateDisplayScore a dt of "however long
   // the player stared at the board".
   lastTime = 0;
+  // Same reasoning one layer down. A park with tweens still in flight is the
+  // damaging case (a modal opened mid-cascade); a park on a settled board has
+  // nothing to compensate, and suspending an idle clock costs nothing.
+  suspendTweenClock();
 }
 
 // Arcade.loop passes (deltaMs, timestamp); the local dt is kept because it
