@@ -1,129 +1,79 @@
 /**
- * main.js — Entry point: canvas setup, game loop, state machine.
+ * main.js — Entry point: DOM lookup, listener wiring, Arcade lifecycle, boot
+ * sequence, HUD rendering, and the frame loop that draws.
  *
- * States:
- *   'idle'       – waiting for player to select a cluster
- *   'selected'   – cluster selected, waiting for rotation or confirm
- *   'rotating'   – pop-thunk rotation animation in progress
- *   'cascading'  – match → flash → remove → gravity → refill → recheck
+ * The state machine it used to carry now lives in js/game-state.js, which has
+ * no DOM in it and so can be exercised under `node --test`
+ * (tests/game-state.test.js). What is left here is wiring: everything in this
+ * file either touches the document, subscribes to the launcher SDK, or paints.
+ * Game rules belong next door.
  */
 
 import {
-  GRID_COLS, GRID_ROWS, BOMB_INITIAL_TIMER,
-} from './constants.js';
-import { createGrid, findMatchesForMode } from './board.js';
-import {
-  initRenderer, resize, drawFrame, getOrigin,
-  setCellOverride, clearCellOverride, clearAllOverrides,
+  initRenderer, resize, drawFrame,
   requestRedraw, clearDirty, getIsDirty, hasActiveRendererAnimations,
-  setActiveGridSize, setFontScale,
+  setFontScale,
 } from './renderer.js';
 import {
   loadActiveMode, getActiveGameMode,
-  getActiveGameModeId, getCombinedModeId,
-  setActiveGameMode, getAllGameModes
+  getActiveGameModeId, setActiveGameMode, getAllGameModes
 } from './modes.js';
-import { hexToPixel, getNeighbors, pixelToHex, findClusterAtPixel } from './hex-math.js';
 import {
-  initInput, getHoverCluster, consumeAction, getLastClickPos, triggerAction,
-  setKeyBindings, clearPendingAction, setClusterCenterPx, hasPendingAction,
+  initInput, getHoverCluster, triggerAction,
+  setKeyBindings, clearPendingAction,
 } from './input.js';
-import { registerFrameLoop, wakeFrameLoop } from './frame.js';
+import { registerFrameLoop } from './frame.js';
 import { openModal, closeModal, registerModalHost } from './modal.js';
 import { shakeRefusal, prepopulateNameInputs } from './ui.js';
 
+import { handleGameOver } from './animations.js';
+import { updateTweens, suspendTweenClock, hasActiveTweens } from './tween.js';
 import {
-  animateClusterRotation, animateRingRotation, animateYRotation,
-  animateBlackPearlCreation, animateGrandPoobahCreation, animateStarflowerCreation,
-  handleOverAchiever, handleGameOver, runCascade, delay
-} from './animations.js';
-import { tween, updateTweens, suspendTweenClock, hasActiveTweens, linear } from './tween.js';
-import {
-  resetScore, advanceChain, resetChain,
-  updateDisplayScore, restoreScore,
-  getScore, getDisplayScore, getChainLevel, getComboCount, getMaxCombo, isScoreAnimating
+  updateDisplayScore,
+  getScore, getDisplayScore, getMaxCombo, isScoreAnimating
 } from './score.js';
 import {
-  detectStarflowers, detectBlackPearls, detectGrandPoobahs,
-  detectGrandPoobahRing, tickBombs,
-} from './specials.js';
-import {
-  saveGameState, loadGameState, clearGameState,
   addHighScore, getHighScores,
   setPlayerName,
   loadSettings, saveSettings,
   recordModeScore, seedRecordsFromScores,
 } from './storage.js';
 import {
-  wireUiClicks,
-  playRotate, playSelect, playMatch, playCombo, playSpecial,
-  playBombArrive, playBombTick, playGameWin,
-  startBed, stopBed, setBedUrgency,
+  wireUiClicks, playGameWin, stopBed,
 } from './audio.js';
 import {
   initPuzzleModeUI, showPuzzleSelector, registerPuzzleCallbacks,
-  clearActivePuzzle, getActivePuzzle, onPuzzleMove,
+  clearActivePuzzle,
 } from './puzzle-mode.js';
-
-
-// ─── Animation Context ───
-export const getAnimationContext = () => ({
-  get grid() { return grid; },
-  set grid(g) { grid = g; },
-  get activeCols() { return activeCols; },
-  get activeRows() { return activeRows; },
-  get state() { return state; },
-  setState(s) { state = s; },
-  get boardGeneration() { return boardGeneration; },
-  get selectedCluster() { return selectedCluster; },
-  get flowerCenter() { return flowerCenter; },
-  get pearlCenter() { return pearlCenter; },
-  get moveCount() { return moveCount; },
-  get bombQueued() { return bombQueued; },
-  setBombQueued(q) { bombQueued = q; },
-  resetGame: () => resetGame(),
-  handleGameWin: () => handleGameWin(),
-  getCombinedModeId,
-  clearGameState,
-});
-// ─── Game state ─────────────────────────────────────────────────
-let grid;
-let activeCols = GRID_COLS;  // may shrink for puzzle grids
-let activeRows = GRID_ROWS;
-let state = 'idle';  // 'idle' | 'selected' | 'rotating' | 'cascading' | 'gameover'
-let isPaused = false;
-let selectedCluster = null;
-let flowerCenter = null;     // {col,row} if a starflower ring is selected
-let pearlCenter = null;      // {col,row} if a black pearl Y-shape is selected
-let lastTime = 0;
-let moveCount = 0;           // total player moves (for bomb spawn timing)
-let bombQueued = false;
-let boardGeneration = 0;  // incremented on grid replacement; stale async chains bail out
+import {
+  registerGameStateHost, getAnimationContext,
+  getGrid, getState, setState, getSelectedCluster, getBoardGeneration,
+  isGamePaused, setPaused,
+  isProcessing, nothingLeftToDo, resumeFromPause, processInput,
+  initBoardFromSave, loadPuzzleBoard,
+  resetGame, resetBoardForNewMode, saveGame, postRotationCheck,
+} from './game-state.js';
 
 // ─── Bootstrap ──────────────────────────────────────────────────
 
-/** True while the board is mid-animation (rotating, cascading). UI should not restart. */
-function isProcessing() {
-  return state === 'rotating' || state === 'cascading';
-}
+// The frame clock. It belongs to the loop below, which is why it stays here
+// and game-state.js resets it through the host rather than owning it.
+let lastTime = 0;
 
-/**
- * Come back from a modal. Every close goes through here — no longer because
- * eleven handlers each remember to call it, but because closeModal() in
- * js/modal.js is the only thing that closes a modal and this is its resume().
- *
- * Clearing isPaused is not enough on its own: a paused frame parks the loop,
- * and a parked loop does not restart just because a flag flipped. That was
- * already true before §6d — closing help or high-scores left the board frozen
- * until the next resize or suspend/resume — and the more the loop parks, the
- * more that bites. Resetting lastTime keeps the score counter from seeing the
- * whole time the modal was open as one delta.
- */
-function resumeFromPause() {
-  isPaused = false;
-  lastTime = 0;
-  wakeFrameLoop();
-}
+registerGameStateHost({
+  closeModeDropdown: () => {
+    if (!logoDropdown.classList.contains('hidden')) {
+      logoDropdown.classList.add('hidden');
+    }
+  },
+  resetFrameClock: () => { lastTime = 0; },
+  onGameWin: () => {
+    stopBed();
+    playGameWin();
+    prepopulateNameInputs();
+    openModal('modal-gamewin');
+  },
+});
 
 // Hand the pause flag to the modal seam. Every open/close in the game goes
 // through js/modal.js from here on, so the pause/resume pairing is one
@@ -132,7 +82,7 @@ function resumeFromPause() {
 // and therefore still through the gate registered below. The seam adds no
 // second way to start the loop.
 registerModalHost({
-  pause: () => { isPaused = true; },
+  pause: () => { setPaused(true); },
   resume: resumeFromPause,
 });
 
@@ -146,9 +96,9 @@ registerModalHost({
 // launcher's iframe.
 if (/(^|[?&#])debug\b/.test(window.location.search + window.location.hash)) {
   window.debug = {
-    getGrid: () => grid,
-    getState: () => state,
-    runPostRotation: () => postRotationCheck(boardGeneration),
+    getGrid,
+    getState,
+    runPostRotation: () => postRotationCheck(getBoardGeneration()),
   };
 }
 
@@ -164,11 +114,11 @@ if (typeof window !== 'undefined' && window.Arcade) {
     // Arcade.loop parks itself on suspend; this only records intent. The loop
     // may be cancelled before gameLoop runs again, so parkFrameLoop() is not
     // guaranteed to fire — stop the tween clock here too.
-    isPaused = true;
+    setPaused(true);
     suspendTweenClock();
   });
   Arcade.onResume(() => {
-    isPaused = false;
+    setPaused(false);
     lastTime = performance.now();
     gameFrameLoop.start();
   });
@@ -180,29 +130,13 @@ if (typeof window !== 'undefined' && window.Arcade) {
 }
 
 // ─── Puzzle mode setup ───────────────────────────────────────────
-initPuzzleModeUI(() => grid, isProcessing);
+initPuzzleModeUI(getGrid, isProcessing);
 
 registerPuzzleCallbacks(
   // onLoad: replace the board with the puzzle's fixed grid
-  (puzzleGrid, cols, rows, puzzle) => {
-    boardGeneration++;
-    setActiveGameMode('puzzle');
-    clearAllOverrides();
-    bombQueued = false;
-    selectedCluster = flowerCenter = pearlCenter = null;
-    moveCount = 0;
-    resetScore();
-    grid = puzzleGrid;
-    activeCols = cols;
-    activeRows = rows;
-    setActiveGridSize(cols, rows);
-    state = 'idle';
-    requestRedraw();
-  },
+  (puzzleGrid, cols, rows, puzzle) => loadPuzzleBoard(puzzleGrid, cols, rows),
   // onEnd: freeze input when puzzle ends
-  (reason) => {
-    state = 'gameover';
-  }
+  (reason) => { setState('gameover'); }
 );
 
 // Apply settings
@@ -404,7 +338,7 @@ document.getElementById('btn-cancel-end').addEventListener('click', (e) => {
 document.getElementById('btn-continue-gamewin').addEventListener('click', (e) => {
   e.stopPropagation();
   setNameFromInput('gw-name');
-  state = 'idle';
+  setState('idle');
   closeModal('modal-gamewin');
   requestRedraw();
 });
@@ -508,7 +442,7 @@ function showHighScores() {
 }
 
 function updateControlsVisibility() {
-  if (state === 'selected' && !isPaused) {
+  if (getState() === 'selected' && !isGamePaused()) {
     controlsEl.classList.remove('hidden');
   } else {
     controlsEl.classList.add('hidden');
@@ -639,20 +573,7 @@ if (activeGameMode.id === 'chill') {
 // Initialize the unified HTML HUD for the active mode
 syncHUDForMode(activeGameMode.id);
 
-const savedState = loadGameState(getCombinedModeId());
-if (savedState) {
-  grid = savedState.grid;
-  restoreScore(savedState);
-  moveCount = savedState.moveCount || 0;
-  state = 'idle';
-} else {
-  resetScore();
-  grid = createGrid();
-  activeCols = GRID_COLS;
-  activeRows = GRID_ROWS;
-  setActiveGridSize(GRID_COLS, GRID_ROWS);
-  state = 'idle';
-}
+initBoardFromSave();
 
 // The SDK owns the frame loop. Arcade.loop cancels on suspend and re-arms on
 // resume, and start() is idempotent — it can never stack a second concurrent
@@ -661,33 +582,17 @@ const gameFrameLoop = Arcade.loop(gameLoop);
 // Hand the loop to the wake seam so renderer.requestRedraw() and tween() can
 // restart it after it parks. The gate keeps a stray redraw from reviving the
 // loop behind an open modal — that is a deliberate park, not an idle one.
-registerFrameLoop(gameFrameLoop, () => !isPaused);
+registerFrameLoop(gameFrameLoop, () => !isGamePaused());
 gameFrameLoop.start();
 
 // ─── Game loop ──────────────────────────────────────────────────
 
-/**
- * GAME_INTEGRATION §6d — is there any reason for another frame?
- *
- * Dirty-checking the *draw* was never enough: an rAF callback that decides not
- * to paint is still an rAF callback, so the main thread woke 60x a second on a
- * settled board and the display pipeline never reached 0 fps. This is the
- * condition that lets the loop stop entirely.
- *
- * isProcessing() ('rotating' / 'cascading') is in here as a deliberate blanket:
- * those states are driven by async chains that await sleeps between tweens, so
- * there are moments mid-cascade with nothing dirty and no tween live. Staying
- * awake through them is a handful of frames during motion the player asked
- * for, and it means no cascade can strand itself waiting on a parked loop.
- */
-function nothingLeftToDo() {
-  return !isProcessing()
-    && !getIsDirty()
-    && !hasActiveTweens()
-    && !hasActiveRendererAnimations()
-    && !isScoreAnimating()
-    && !hasPendingAction();
-}
+// GAME_INTEGRATION §6d — a visible-but-idle game must let the display pipeline
+// reach 0 fps, which means the loop has to stop, not just skip its draw. The
+// "is there any reason for another frame?" predicate is nothingLeftToDo(), and
+// it lives in js/game-state.js because it reads the machine's state; the two
+// halves of the arrangement — parking, and waking through js/frame.js — are
+// here, because the loop handle is here.
 
 /** Park until something wakes us. */
 function parkFrameLoop() {
@@ -707,7 +612,7 @@ function parkFrameLoop() {
 function gameLoop(_deltaMs, timestamp) {
   // Paused means paused: park the loop rather than burning a frame slot each
   // tick to do nothing. onResume/restart start() it again.
-  if (isPaused) { parkFrameLoop(); return; }
+  if (isGamePaused()) { parkFrameLoop(); return; }
 
   const dt = lastTime ? timestamp - lastTime : 16;
   lastTime = timestamp;
@@ -716,7 +621,7 @@ function gameLoop(_deltaMs, timestamp) {
   updateDisplayScore(dt);
 
   // Game over: just render, no input
-  if (state === 'gameover') {
+  if (getState() === 'gameover') {
     // Drain rather than ignore. This branch returns before the consume block,
     // so a stray keypress behind the game-over modal would sit in the queue
     // forever — and a queued gesture is one of the reasons the loop refuses to
@@ -726,7 +631,7 @@ function gameLoop(_deltaMs, timestamp) {
 
     const needsDraw = getIsDirty() || hasActiveTweens() || hasActiveRendererAnimations() || isScoreAnimating();
     if (needsDraw) {
-      drawFrame(grid, null, null);
+      drawFrame(getGrid(), null, null);
       clearDirty();
     }
     // drawGameOver(); // Handled by DOM overlay now
@@ -739,49 +644,16 @@ function gameLoop(_deltaMs, timestamp) {
     return;
   }
 
-  // Process input — only consume in states that can use it.
-  //
-  // A consumed action is a genuine user gesture, which is also what unlocks the
-  // AudioContext under the browser's autoplay policy — so the ambient floor is
-  // started from here rather than at load, where it would be blocked. Both
-  // calls are idempotent and early-return once the bed is running.
-  if (state === 'idle') {
-    const action = consumeAction();
-    if (action && action.type === 'select') {
-      startBed(getActiveGameModeId());
-      trySelect();
-    }
-  } else if (state === 'selected') {
-    const action = consumeAction();
-    if (action) {
-      startBed(getActiveGameModeId());
-      if (action.type === 'rotateCW' || action.type === 'rotateCCW') {
-        animateRotation(action.type === 'rotateCW');
-      } else if (action.type === 'select') {
-        // Click: try to select something else, or deselect
-        const prevCluster = selectedCluster;
-        trySelect();
-        if (selectedCluster === null) {
-          // Nothing to select → deselect
-          state = 'idle';
-        } else if (clustersMatch(selectedCluster, prevCluster)) {
-          // Clicked same thing → deselect
-          selectedCluster = null;
-          flowerCenter = null;
-          pearlCenter = null;
-          state = 'idle';
-        }
-        // else: selected something new, stay in 'selected'
-      }
-    }
-  }
-  // 'rotating' and 'cascading': input is NOT consumed (preserved for later)
+  // Consume the queued gesture and apply it to the machine. The rules live in
+  // js/game-state.js; the loop only decides *when* to ask.
+  processInput();
 
   // Draw
   const needsDraw = getIsDirty() || hasActiveTweens() || hasActiveRendererAnimations() || isScoreAnimating();
   if (needsDraw) {
-    const hover = (state === 'idle') ? getHoverCluster() : null;
-    drawFrame(grid, hover, (state === 'selected' ? selectedCluster : null));
+    const st = getState();
+    const hover = (st === 'idle') ? getHoverCluster() : null;
+    drawFrame(getGrid(), hover, (st === 'selected' ? getSelectedCluster() : null));
     clearDirty();
   }
 
@@ -791,104 +663,6 @@ function gameLoop(_deltaMs, timestamp) {
   // Settled board, no pending gesture, nothing animating: 0 fps until the
   // player does something. requestRedraw() / tween() bring us back.
   if (nothingLeftToDo()) parkFrameLoop();
-}
-
-/**
- * Try to select whatever is under the cursor.
- * Prioritizes flower rings over normal 3-hex clusters.
- */
-function trySelect() {
-  const { originX, originY } = getOrigin();
-  const clickPos = getLastClickPos();
-  if (!clickPos) {
-    selectedCluster = null;
-    flowerCenter = null;
-    pearlCenter = null;
-    setClusterCenterPx(null, null);
-    return;
-  }
-
-  // Close dropdown if clicking on canvas
-  if (!logoDropdown.classList.contains('hidden')) {
-    logoDropdown.classList.add('hidden');
-  }
-
-  const hex = pixelToHex(clickPos.x, clickPos.y, originX, originY);
-
-  // Check if the clicked hex is a black pearl → Y-shape selection
-  if (hex.col >= 0 && hex.col < activeCols &&
-      hex.row >= 0 && hex.row < activeRows &&
-      grid[hex.col]?.[hex.row]?.special === 'blackpearl') {
-    // Select a Y-shape: pearl center + 3 alternating neighbors
-    const nbrs = getNeighbors(hex.col, hex.row);
-    const inBoundsNbrs = nbrs.filter(n =>
-      n.col >= 0 && n.col < activeCols && n.row >= 0 && n.row < activeRows
-    );
-    if (inBoundsNbrs.length >= 3) {
-      // Pick alternating neighbors (every other one) for Y-shape
-      // Use even-indexed neighbors: 0, 2, 4 for one Y, 1, 3, 5 for inverted
-      const yHexes = [nbrs[0], nbrs[2], nbrs[4]].filter(n =>
-        n.col >= 0 && n.col < activeCols && n.row >= 0 && n.row < activeRows
-      );
-      if (yHexes.length === 3) {
-        pearlCenter = { col: hex.col, row: hex.row };
-        flowerCenter = null;
-        selectedCluster = [{ col: hex.col, row: hex.row }, ...yHexes];
-        state = 'selected';
-        playSelect();
-        // Pearl center is the center hex pixel
-        const cp = hexToPixel(hex.col, hex.row, originX, originY);
-        setClusterCenterPx(cp.x, cp.y);
-        return;
-      }
-    }
-  }
-
-  // Check if the clicked hex is a starflower → ring selection
-  if (hex.col >= 0 && hex.col < activeCols &&
-      hex.row >= 0 && hex.row < activeRows &&
-      grid[hex.col]?.[hex.row]?.special === 'starflower') {
-    const nbrs = getNeighbors(hex.col, hex.row);
-    const allInBounds = nbrs.every(n =>
-      n.col >= 0 && n.col < activeCols && n.row >= 0 && n.row < activeRows
-    );
-    if (allInBounds) {
-      flowerCenter = { col: hex.col, row: hex.row };
-      pearlCenter = null;
-      selectedCluster = [{ col: hex.col, row: hex.row }, ...nbrs];
-      state = 'selected';
-      playSelect();
-      // Flower center pixel
-      const cp = hexToPixel(hex.col, hex.row, originX, originY);
-      setClusterCenterPx(cp.x, cp.y);
-      return;
-    }
-  }
-
-  // Normal 3-hex cluster selection
-  const cluster = findClusterAtPixel(
-    clickPos.x, clickPos.y,
-    originX, originY,
-    activeCols, activeRows
-  );
-  if (cluster) {
-    flowerCenter = null;
-    pearlCenter = null;
-    selectedCluster = cluster;
-    state = 'selected';
-    playSelect();
-    // Compute centroid of the 3 cluster hexes
-    const px = cluster.map(h => hexToPixel(h.col, h.row, originX, originY));
-    setClusterCenterPx(
-      (px[0].x + px[1].x + px[2].x) / 3,
-      (px[0].y + px[1].y + px[2].y) / 3
-    );
-  } else {
-    selectedCluster = null;
-    flowerCenter = null;
-    pearlCenter = null;
-    setClusterCenterPx(null, null);
-  }
 }
 
 // ─── Mode selector ──────────────────────────────────────────────
@@ -926,342 +700,6 @@ async function switchGameMode(newModeId) {
 
 // switchMatchMode removed — line variant deprecated, see tag feature/line-match-mode
 
-function resetBoardForNewMode() {
-  boardGeneration++;
-  clearAllOverrides();
-  bombQueued = false;
-  selectedCluster = flowerCenter = pearlCenter = null;
-  const combinedId = getCombinedModeId();
-  const saved = loadGameState(combinedId);
-  if (saved) {
-    grid = saved.grid;
-    restoreScore(saved);
-    moveCount = saved.moveCount || 0;
-  } else {
-    resetScore();
-    resetChain();
-    grid = createGrid();
-    moveCount = 0;
-  }
-  activeCols = GRID_COLS;
-  activeRows = GRID_ROWS;
-  setActiveGridSize(GRID_COLS, GRID_ROWS);
-  state = 'idle';
-  closeModal('modal-gameover');
-  requestRedraw();
-}
-
-// ─── Rotation animation ────────────────────────────────────────
-
-async function animateRotation(clockwise) {
-  if (state !== 'selected') return;
-  state = 'rotating';
-  // One ratchet per player rotation press, not per internal step. The
-  // mechanism's size follows what is actually turning: a starflower spins its
-  // six-tile ring, a black pearl its Y, everything else the plain 3-cluster.
-  playRotate(flowerCenter ? 'ring' : pearlCenter ? 'y' : 'cluster');
-  const gen = boardGeneration;
-  const ctx = getAnimationContext();
-
-  const { originX, originY } = getOrigin();
-
-  // Determine max steps based on selection type
-  // Starflower ring = 6 steps for full rotation
-  // Cluster / Black Pearl (Y) = 3 steps for full rotation
-  let maxSteps = 3;
-  if (flowerCenter || pearlCenter) maxSteps = 1;
-
-  for (let step = 0; step < maxSteps; step++) {
-    // 1. Animate one step
-    if (flowerCenter) {
-      await animateRingRotation(ctx, clockwise, originX, originY);
-    } else if (pearlCenter) {
-      await animateYRotation(ctx, clockwise, originX, originY);
-    } else {
-      await animateClusterRotation(ctx, clockwise, originX, originY);
-    }
-    if (boardGeneration !== gen) return; // board was replaced (e.g. restart)
-
-    // 2. Check for matches or specials
-    const matches = findMatchesForMode(grid, activeCols, activeRows);
-    const sfResults = detectStarflowers(grid);
-    const bpResults = detectBlackPearls(grid);
-    const gpResults = detectGrandPoobahs(grid);
-
-    // If we found anything significant, proceed to post-rotation logic (cascade/etc)
-    // and STOP rotating.
-    if (matches.size > 0 || sfResults.length > 0 || bpResults.length > 0 || gpResults.length > 0) {
-      await postRotationCheck(gen);
-      return;
-    }
-  }
-
-  // If we loop through all steps without a match, we are back at the start.
-  // Count as a move, tick bombs, etc.
-  await postRotationCheck(gen);
-}
-
-function handleGameWin() {
-  state = 'gameover';
-  stopBed();
-  playGameWin();
-  prepopulateNameInputs();
-  openModal('modal-gamewin');
-}
-
-/** How pressed the player is by bombs, 0..1, from the SHORTEST live fuse on the
- *  board — that is the one that ends the game. Arcade bombs spawn at
- *  BOMB_INITIAL_TIMER, so a fresh one sits near 0 and the last move before
- *  detonation is 1; a puzzle bomb placed on a shorter fuse simply starts
- *  further up the scale, which is the right reading. Returns 0 when the board
- *  is clear, which is what silences the tension bed entirely.
- *  @returns {number} */
-function bombUrgency() {
-  let min = Infinity;
-  for (let c = 0; c < activeCols; c++) {
-    for (let r = 0; r < activeRows; r++) {
-      const cell = grid[c]?.[r];
-      if (cell?.special === 'bomb' && typeof cell.bombTimer === 'number') {
-        if (cell.bombTimer < min) min = cell.bombTimer;
-      }
-    }
-  }
-  if (min === Infinity) return 0;
-  const u = 1 - (min - 1) / BOMB_INITIAL_TIMER;
-  return Math.max(0, Math.min(1, u));
-}
-
-/** Shared post-rotation logic: tick bombs, cascade or detect specials.
- *  @param {number} gen — boardGeneration at call time; bail out if it changes.
- *                        Always pass explicitly — do not rely on a default capture. */
-async function postRotationCheck(gen) {
-  // Guard: callers must pass gen so stale async chains bail correctly.
-  if (gen === undefined) gen = boardGeneration;
-  moveCount++;
-  const ctx = getAnimationContext();
-
-  const mode = getActiveGameMode();
-
-  // Tick bomb timers in any mode that has them (arcade + puzzle pre-placed bombs)
-  // Only spawn new bombs in arcade (hasBombs). Puzzle uses pre-placed bombs only.
-  if (mode.ticksBombs) {
-    tickBombs(grid);
-
-    // Animate bomb shake on tick
-    const bombCells = [];
-    for (let c = 0; c < activeCols; c++) {
-      for (let r = 0; r < activeRows; r++) {
-        if (grid[c][r]?.special === 'bomb') bombCells.push({ c, r });
-      }
-    }
-    if (bombCells.length > 0) {
-      // The fuse clock, with the shake. Urgency tracks the SHORTEST live fuse,
-      // since that is the one about to end the game.
-      playBombTick(bombUrgency());
-      await tween(250, t => {
-        const shakeX = Math.sin(t * Math.PI * 6) * 4 * (1 - t);
-        for (const b of bombCells) {
-          setCellOverride(b.c, b.r, { offsetX: shakeX });
-        }
-        requestRedraw();
-      }, linear).promise;
-      if (boardGeneration !== gen) return;
-      for (const b of bombCells) clearCellOverride(b.c, b.r);
-      requestRedraw();
-    }
-
-    // Spawn new bombs only in arcade mode
-    if (mode.hasBombs) {
-      const currentScore = getScore();
-      let dynamicInterval = 15 - Math.floor(currentScore / 5000);
-      if (dynamicInterval < 4) dynamicInterval = 4;
-      if (moveCount % dynamicInterval === 0 && !bombQueued) {
-        bombQueued = true;
-        playBombArrive(); // a bomb is about to appear on the board
-      }
-    }
-  }
-
-  // Centralized Board State Resolution Logic
-  let boardStable = false;
-  let isFirstStep = true;
-
-  while (!boardStable) {
-    if (boardGeneration !== gen) return;
-    boardStable = true;
-
-    // Check for Grand Poobah Ring (Over-Achiever) before anything else
-    const gpRing = detectGrandPoobahRing(grid);
-    if (gpRing.length > 0) {
-      await handleOverAchiever(ctx);
-      return;
-    }
-
-    const gpResults = detectGrandPoobahs(grid);
-    if (gpResults.length > 0) {
-      if (!isFirstStep) { advanceChain(); await delay(100); }
-      if (boardGeneration !== gen) return;
-      isFirstStep = false;
-      state = 'cascading';
-      playSpecial('grandpoobah');
-      await animateGrandPoobahCreation(ctx, gpResults);
-      if (boardGeneration !== gen) return;
-      boardStable = false;
-      continue;
-    }
-
-    const bpResults = detectBlackPearls(grid);
-    if (bpResults.length > 0) {
-      if (!isFirstStep) { advanceChain(); await delay(100); }
-      if (boardGeneration !== gen) return;
-      isFirstStep = false;
-      state = 'cascading';
-      playSpecial('blackpearl');
-      await animateBlackPearlCreation(ctx, bpResults);
-      if (boardGeneration !== gen) return;
-      boardStable = false;
-      continue;
-    }
-
-    const sfResults = detectStarflowers(grid);
-    if (sfResults.length > 0) {
-      if (!isFirstStep) { advanceChain(); await delay(100); }
-      if (boardGeneration !== gen) return;
-      isFirstStep = false;
-      state = 'cascading';
-      playSpecial('starflower');
-      await animateStarflowerCreation(ctx, sfResults);
-      if (boardGeneration !== gen) return;
-      boardStable = false;
-      continue;
-    }
-
-    const matches = findMatchesForMode(grid, activeCols, activeRows);
-    if (matches.size > 0) {
-      const chained = !isFirstStep;
-      if (chained) { advanceChain(); await delay(100); }
-      if (boardGeneration !== gen) return;
-      isFirstStep = false;
-      state = 'cascading';
-      // First clear = plain match, sized by how much glass broke; chained
-      // cascade steps = combo, climbing the ladder with chain depth.
-      if (chained) playCombo(getChainLevel());
-      else playMatch(matches.size);
-      await runCascade(ctx, matches, gen);
-      if (boardGeneration !== gen) return;
-      boardStable = false;
-      continue;
-    }
-  }
-
-  if (!isFirstStep) {
-    // Only deselect if a cascade or special formation occurred
-    selectedCluster = null;
-    flowerCenter = null;
-    pearlCenter = null;
-    state = 'idle';
-  } else {
-    // Retain selection if nothing cleared
-    state = 'selected';
-  }
-
-  resetChain();
-
-  // The floor answers the board: the tension layer tracks the shortest live
-  // fuse and goes silent when there are none. Quantised + hysteresis inside,
-  // so calling it every move costs a retune only a handful of times a session.
-  setBedUrgency(bombUrgency());
-
-  // Puzzle move tracking
-  const activePuzzle = getActivePuzzle();
-  if (activePuzzle) {
-    onPuzzleMove(grid, getScore(), getChainLevel());
-    // Don't saveGame for puzzles — fixed board, no persistence needed
-  } else {
-    saveGame();
-  }
-
-  // Final check: did any un-cleared bombs expire?
-  // ticksBombs covers both arcade (hasBombs) and puzzle (pre-placed bombs)
-  if (mode.ticksBombs && mode.hasGameOver) {
-    let exploded = false;
-    for (let c = 0; c < activeCols; c++) {
-      for (let r = 0; r < activeRows; r++) {
-         if (grid[c]?.[r]?.special === 'bomb' && grid[c][r].bombTimer <= 0) {
-             exploded = true;
-             break;
-         }
-      }
-    }
-    if (exploded) {
-       handleGameOver(ctx, false);
-       return;
-    }
-  }
-}
-
-function resetGame() {
-  boardGeneration++;
-  resetScore();
-  resetChain();
-  grid = createGrid();
-  activeCols = GRID_COLS;
-  activeRows = GRID_ROWS;
-  setActiveGridSize(GRID_COLS, GRID_ROWS);
-  state = 'idle';
-  moveCount = 0;
-  bombQueued = false;
-  selectedCluster = null;
-  flowerCenter = null;
-  pearlCenter = null;
-
-  // A restart is a fresh room: drop the old floor and start one at the new
-  // mode's intensity. startBed() is idempotent, so the stop matters more than
-  // the start — without it a mode switch would leave the previous bed running.
-  stopBed(0.4);
-  startBed(getActiveGameModeId());
-
-  // Ensure we are unpaused and running. closeModal() is the whole of it now:
-  // it clears the pause and calls resumeFromPause(), which wakes the loop
-  // through the gate. That used to be an open-coded `isPaused = false` plus a
-  // direct gameFrameLoop.start() here — a second way to start the loop, which
-  // is exactly what the gate exists to be the only one of.
-  closeModal('modal-gameover');
-}
-
-function saveGame() {
-  saveGameState(getCombinedModeId(), {
-    grid,
-    moveCount,
-    score: getScore(),
-    displayScore: getDisplayScore(),
-    chainLevel: getChainLevel(),
-    comboCount: getComboCount(),
-    maxCombo: getMaxCombo(),
-  });
-}
-
-// ─── Cascade logic ──────────────────────────────────────────────
-
-async function startCascade() {
-  state = 'cascading';
-
-  const matches = findMatchesForMode(grid, activeCols, activeRows);
-  if (matches.size === 0) {
-    // No match — just deselect
-    selectedCluster = null;
-    state = 'idle';
-    resetChain();
-    return;
-  }
-
-  await runCascade(getAnimationContext(), matches);
-
-  selectedCluster = null;
-  state = 'idle';
-  resetChain();
-}
-
 // ─── Helpers ────────────────────────────────────────────────────
 
 /** Read the name from an input and persist it as the sticky player name. */
@@ -1279,12 +717,6 @@ function commitScoreFromInput(inputId, achievement) {
   addHighScore(modeId, getScore(), achievement, getMaxCombo());
   // Records: single best-ever score per mode, alongside the leaderboard (R4).
   recordModeScore(modeId, getScore());
-}
-
-function clustersMatch(a, b) {
-  if (!a || !b || a.length !== b.length) return false;
-  const setA = new Set(a.map(h => `${h.col},${h.row}`));
-  return b.every(h => setA.has(`${h.col},${h.row}`));
 }
 
 // ─── Game Over overlay ──────────────────────────────────────────
