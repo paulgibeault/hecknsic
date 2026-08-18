@@ -91,15 +91,6 @@ function countRun(grid, col, row, dir, cols, rows) {
 }
 
 /**
- * Get cell at (col, row), or null if out of bounds.
- */
-export function getCell(grid, col, row) {
-  if (col < 0 || col >= grid.length) return null;
-  if (row < 0 || row >= grid[0].length) return null;
-  return grid[col][row];
-}
-
-/**
  * Swap color values of cells at positions within a cluster (rotation).
  * CW:  [0,1,2] → colors shift: 2→0, 0→1, 1→2
  * CCW: [0,1,2] → colors shift: 1→0, 2→1, 0→2

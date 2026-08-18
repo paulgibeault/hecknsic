@@ -10,7 +10,6 @@
 
 import {
   PUZZLE_SECTORS,
-  ALL_PUZZLES,
   getPuzzleById,
   getNextPuzzle,
   decodePuzzleBoard,
@@ -30,6 +29,8 @@ import {
 } from './storage.js';
 import { getTodaysPuzzle, getDailyDateString, getDailyProgress } from './daily-puzzle.js';
 import { showPuzzleEditor, registerEditorCallbacks, initPuzzleEditorUI } from './puzzle-editor.js';
+import { openModal, closeModal } from './modal.js';
+import { shakeRefusal } from './ui.js';
 
 // ─── Active puzzle state ────────────────────────────────────────
 
@@ -43,6 +44,22 @@ let _onPuzzleLoad  = null;  // callback(grid, cols, rows, puzzle) — set by mai
 let _onPuzzleEnd   = null;  // callback(reason) — 'complete' | 'failed'
 // Custom/daily puzzle cache — capped at 14 entries (LRU by insertion order via Map)
 let _customPuzzles = new Map();
+// True while the board is mid-animation. Loading a puzzle then would hand the
+// in-flight animation a board that no longer exists. Injected by main.js.
+let _isProcessing  = () => false;
+
+/**
+ * Refuse a board-replacing click while the board is animating, shaking the
+ * button so the refusal reads as deliberate. The mirror of guardedAction in
+ * main.js — the two differ only in busy-predicate and return shape, and share
+ * the shake itself through js/ui.js.
+ * @returns {boolean} true when the caller must bail.
+ */
+function refuseWhileProcessing(btn) {
+  if (!_isProcessing()) return false;
+  shakeRefusal(btn);
+  return true;
+}
 
 // ─── Public API ─────────────────────────────────────────────────
 
@@ -52,14 +69,14 @@ export function registerPuzzleCallbacks(onLoad, onEnd) {
 }
 
 export function getActivePuzzle()   { return activePuzzle; }
-export function getPuzzleMovesLeft(){ return activePuzzle ? activePuzzle.moveLimit - movesUsed : 0; }
-export function getPuzzleMovesUsed(){ return movesUsed; }
-export function getPuzzleStats()    { return stats; }
 
 /**
  * Load and start a puzzle by id or by puzzle object directly (custom/daily).
  */
 export function startPuzzle(puzzleIdOrObject) {
+  // Backstop for any start path that did not check first (the editor's play
+  // button among them): replacing the board mid-animation corrupts it.
+  if (_isProcessing()) return;
   let puzzle;
   if (typeof puzzleIdOrObject === 'object') {
     puzzle = puzzleIdOrObject;
@@ -219,8 +236,9 @@ export function showPuzzleSelector() {
         btn.appendChild(info);
         btn.appendChild(starDisplay);
 
-        btn.addEventListener('click', () => {
-          document.getElementById('modal-puzzle-select').classList.add('hidden');
+        btn.addEventListener('click', (e) => {
+          if (refuseWhileProcessing(e.currentTarget)) return;
+          closeModal('modal-puzzle-select');
           startPuzzle(puzzle.id);
         });
 
@@ -231,7 +249,7 @@ export function showPuzzleSelector() {
     container.appendChild(sectorEl);
   }
 
-  document.getElementById('modal-puzzle-select').classList.remove('hidden');
+  openModal('modal-puzzle-select');
 }
 
 // ─── Puzzle HUD ─────────────────────────────────────────────────
@@ -323,7 +341,7 @@ function showPuzzleResult(stars) {
     nextBtn.dataset.nextId = nextPuzzle?.id ?? '';
   }
 
-  document.getElementById('modal-puzzle-result').classList.remove('hidden');
+  openModal('modal-puzzle-result');
 
   if (_onPuzzleEnd) _onPuzzleEnd('complete');
 }
@@ -359,7 +377,7 @@ function showPuzzleFailed(reason) {
   const recordEl = document.getElementById('puzzle-failed-new-record');
   if (recordEl) recordEl.style.display = isNewRecord ? 'block' : 'none';
 
-  document.getElementById('modal-puzzle-failed').classList.remove('hidden');
+  openModal('modal-puzzle-failed');
 
   if (_onPuzzleEnd) _onPuzzleEnd('failed');
 }
@@ -466,72 +484,92 @@ function hasValidMoves(grid, cols, rows) {
   return false;
 }
 
+/**
+ * Close all three puzzle modals through the seam, whichever one is showing.
+ *
+ * startPuzzle() calls this on its way in, so every path that ends in a new
+ * board — retry, next, the selector, the daily button, the editor's play
+ * button — resumes the loop even if the handler forgot to close its own modal
+ * first. closeModal() is a no-op on a modal that is already hidden, and only
+ * lifts the pause once none of them is left open.
+ */
 function hidePuzzleModals() {
-  ['modal-puzzle-select', 'modal-puzzle-result', 'modal-puzzle-failed'].forEach(id => {
-    document.getElementById(id)?.classList.add('hidden');
-  });
+  closeModal('modal-puzzle-select');
+  closeModal('modal-puzzle-result');
+  closeModal('modal-puzzle-failed');
 }
 
 // ─── Modal button wiring ────────────────────────────────────────
 
 export function initPuzzleModeUI(getGridFn, isProcessingFn = () => false) {
+  _isProcessing = isProcessingFn;
+
   // Init puzzle editor (pass grid capture + start callbacks)
   initPuzzleEditorUI();
   registerEditorCallbacks(getGridFn, startPuzzle);
 
   // Daily puzzle play button
-  document.getElementById('btn-play-daily')?.addEventListener('click', () => {
-    document.getElementById('modal-puzzle-select').classList.add('hidden');
+  document.getElementById('btn-play-daily')?.addEventListener('click', (e) => {
+    if (refuseWhileProcessing(e.currentTarget)) return;
+    closeModal('modal-puzzle-select');
     startPuzzle(getTodaysPuzzle());
   });
 
   // Open puzzle editor from selector
   document.getElementById('btn-open-puzzle-editor')?.addEventListener('click', () => {
-    document.getElementById('modal-puzzle-select').classList.add('hidden');
+    // Selector out, editor in. Both pause, so the seam never lifts the pause
+    // between the two — closeModal() sees the editor is about to hold it.
+    closeModal('modal-puzzle-select');
     showPuzzleEditor();
   });
 
   // Restart puzzle (always-visible HUD button)
-  document.getElementById('btn-puzzle-restart')?.addEventListener('click', () => {
-    if (activePuzzle && !isProcessingFn()) startPuzzle(activePuzzle.id);
+  document.getElementById('btn-puzzle-restart')?.addEventListener('click', (e) => {
+    if (refuseWhileProcessing(e.currentTarget)) return;
+    if (activePuzzle) startPuzzle(activePuzzle.id);
   });
 
   // Close puzzle selector
   document.getElementById('btn-close-puzzle-select')?.addEventListener('click', () => {
-    document.getElementById('modal-puzzle-select').classList.add('hidden');
+    closeModal('modal-puzzle-select');
   });
 
   // Result modal: retry
-  document.getElementById('btn-puzzle-retry')?.addEventListener('click', () => {
-    document.getElementById('modal-puzzle-result').classList.add('hidden');
+  document.getElementById('btn-puzzle-retry')?.addEventListener('click', (e) => {
+    if (refuseWhileProcessing(e.currentTarget)) return;
+    closeModal('modal-puzzle-result');
     if (activePuzzle) startPuzzle(activePuzzle.id);
   });
 
   // Result modal: next
   document.getElementById('btn-puzzle-next')?.addEventListener('click', (e) => {
+    if (refuseWhileProcessing(e.currentTarget)) return;
     const nextId = e.currentTarget.dataset.nextId;
     if (nextId) {
-      document.getElementById('modal-puzzle-result').classList.add('hidden');
+      closeModal('modal-puzzle-result');
       startPuzzle(nextId);
     }
   });
 
-  // Result modal: back to menu
+  // Result modal: back to menu. Deliberately NOT guarded: clearActivePuzzle()
+  // replaces no board, so there is nothing to corrupt, and refusing the only
+  // way out of a modal is a soft-lock waiting to happen.
   document.getElementById('btn-puzzle-menu')?.addEventListener('click', () => {
-    document.getElementById('modal-puzzle-result').classList.add('hidden');
+    closeModal('modal-puzzle-result');
     clearActivePuzzle();
     showPuzzleSelector();
   });
 
   // Failed modal: retry
-  document.getElementById('btn-puzzle-failed-retry')?.addEventListener('click', () => {
-    document.getElementById('modal-puzzle-failed').classList.add('hidden');
+  document.getElementById('btn-puzzle-failed-retry')?.addEventListener('click', (e) => {
+    if (refuseWhileProcessing(e.currentTarget)) return;
+    closeModal('modal-puzzle-failed');
     if (activePuzzle) startPuzzle(activePuzzle.id);
   });
 
-  // Failed modal: menu
+  // Failed modal: menu — unguarded for the same reason as btn-puzzle-menu.
   document.getElementById('btn-puzzle-failed-menu')?.addEventListener('click', () => {
-    document.getElementById('modal-puzzle-failed').classList.add('hidden');
+    closeModal('modal-puzzle-failed');
     clearActivePuzzle();
     showPuzzleSelector();
   });
@@ -539,7 +577,7 @@ export function initPuzzleModeUI(getGridFn, isProcessingFn = () => false) {
   // Failed modal: dismiss (X button or click outside)
   const failedModal = document.getElementById('modal-puzzle-failed');
   const dismissFailed = () => {
-    failedModal.classList.add('hidden');
+    closeModal('modal-puzzle-failed');
     showPuzzleHUD(true);
   };
   document.getElementById('btn-puzzle-failed-dismiss')?.addEventListener('click', dismissFailed);

@@ -34,6 +34,7 @@ const power    = await import('../js/power.js');
 const frame    = await import('../js/frame.js');
 const renderer = await import('../js/renderer.js');
 const { tween } = await import('../js/tween.js');
+const input    = await import('../js/input.js');
 
 /** Every decorative effect the game can throw, in one call. */
 function spawnAllDecoration() {
@@ -86,6 +87,29 @@ test('power saver drops decoration and keeps the readouts', () => {
   launcher.push(true);   // a full transition, which fires the clear
   assert.strictEqual(renderer.hasActiveRendererAnimations(), true,
     'the clear must take the confetti and leave the readout');
+});
+
+test('a UI button gesture wakes the loop it was queued against', () => {
+  launcher.push(false);
+
+  let running = false;
+  let starts = 0;
+  frame.registerFrameLoop(
+    { start() { running = true; starts++; }, running: () => running },
+    () => true,
+  );
+
+  input.clearPendingAction();
+  running = false;
+  input.triggerAction('rotateCW');
+
+  assert.strictEqual(input.hasPendingAction(), true,
+    'precondition: the gesture is queued for the loop to consume');
+  assert.strictEqual(starts, 1,
+    'the rotate buttons queue an action without touching the canvas, so ' +
+    'triggerAction() is the only thing that can wake the loop for them — ' +
+    'without it the gesture sits in the queue until some unrelated event ' +
+    'restarts the loop, which then answers a stale rotation');
 });
 
 test('a parked loop is woken by a redraw request and by a new tween', () => {

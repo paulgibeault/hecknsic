@@ -2,7 +2,7 @@
  * input.js — Mouse, touch, and keyboard input → game actions.
  */
 
-import { pixelToHex, findClusterAtPixel } from './hex-math.js';
+import { findClusterAtPixel } from './hex-math.js';
 import { getOrigin, getBoardScale, getActiveGridSize, requestRedraw } from './renderer.js';
 
 // ─── State ──────────────────────────────────────────────────────
@@ -14,7 +14,6 @@ let clusterCenterPx = null; // {x, y} pixel center of selected cluster (canvas-s
 
 export function getHoverCluster() { return hoverCluster; }
 export function getLastClickPos() { return lastClickPos; }
-export function getMousePos() { return { x: mouseX, y: mouseY }; }
 
 /**
  * Called by main.js whenever a cluster is selected/changed.
@@ -42,9 +41,16 @@ export function hasPendingAction() { return pendingAction !== null; }
 
 /**
  * Trigger an action programmatically (e.g. from UI buttons).
+ *
+ * The redraw request is not cosmetic: since the loop parks itself on a settled
+ * board (§6d), queueing an action is only half the job — nothing consumes the
+ * queue until the loop is running again. Without this the rotate buttons did
+ * nothing until the next canvas event woke the loop, which then answered the
+ * stale gesture. Every other input path already calls this for the same reason.
  */
 export function triggerAction(type) {
   pendingAction = { type };
+  requestRedraw();
 }
 
 /**

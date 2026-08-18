@@ -9,7 +9,7 @@
 import {
   GRID_COLS, GRID_ROWS, HEX_SIZE, PIECE_COLORS, STARFLOWER_COLOR, BLACK_PEARL_COLOR, GRAND_POOBAH_COLOR,
   FRAME_COLOR, BOARD_BG_COLOR,
-  HIGHLIGHT_COLOR, CLUSTER_HIGHLIGHT,
+  CLUSTER_HIGHLIGHT,
 } from './constants.js';
 import { hexToPixel, hexCorners } from './hex-math.js';
 import { getComboCount, getChainLevel } from './score.js';
@@ -235,10 +235,6 @@ export function spawnCreationParticles(cx, cy, count = 16) {
       hue: 190 + Math.random() * 40,  // cool steel-blue hues
     });
   }
-}
-
-export function clearCreationParticles() {
-  creationParticles = [];
 }
 
 // ─── Special Match Effect APIs ──────────────────────────────────

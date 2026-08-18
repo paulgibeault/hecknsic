@@ -10,7 +10,7 @@
  *             Defused by including it in a 3+ match of the same color.
  */
 
-import { GRID_COLS, GRID_ROWS } from './constants.js';
+import { GRID_ROWS } from './constants.js';
 import { getNeighbors } from './hex-math.js';
 
 /** Derive actual grid bounds — puzzle grids may be smaller than GRID_COLS/GRID_ROWS. */
@@ -293,18 +293,5 @@ export function tickBombs(grid) {
     }
   }
   return expired;
-}
-
-/**
- * Count active bombs on the board.
- */
-export function countBombs(grid) {
-  let count = 0;
-  for (let c = 0; c < cols(grid); c++) {
-    for (let r = 0; r < rows(grid); r++) {
-      if (grid[c][r]?.special === 'bomb') count++;
-    }
-  }
-  return count;
 }
 

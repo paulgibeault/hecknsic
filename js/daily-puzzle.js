@@ -7,8 +7,8 @@
  * Goals rotate on a weekly cycle so each day has a different challenge type.
  */
 
-import { PIECE_COLORS, GRID_COLS, GRID_ROWS } from './constants.js';
-import { getPuzzleProgress, savePuzzleProgress } from './storage.js';
+import { PIECE_COLORS } from './constants.js';
+import { getPuzzleProgress } from './storage.js';
 import { makeRng } from './arcade-rng.js';
 
 // ─── Seeded RNG ─────────────────────────────────────────────────
@@ -214,10 +214,6 @@ export function generateDailyPuzzle(dateStr) {
 
 export function getDailyProgress(dateStr) {
   return getPuzzleProgress(getDailyPuzzleId(dateStr));
-}
-
-export function saveDailyProgress(dateStr, result) {
-  savePuzzleProgress(getDailyPuzzleId(dateStr), result);
 }
 
 export function getTodaysPuzzle() {

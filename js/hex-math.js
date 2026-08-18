@@ -65,15 +65,6 @@ function axialToOffset(q, r) {
   return { col, row };
 }
 
-/**
- * Offset (col, row) → axial (q, r).
- */
-export function offsetToAxial(col, row) {
-  const q = col;
-  const r = row - (col - (col & 1)) / 2;
-  return { q, r };
-}
-
 // ─── Neighbors ──────────────────────────────────────────────────
 
 const NEIGHBORS_EVEN = [

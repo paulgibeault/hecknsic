@@ -60,9 +60,43 @@ export function resetChain() {
   comboCount = 0;
 }
 
-/** Animate the display score toward the actual score. Call each frame. */
+// ─── The score counter's clock ──────────────────────────────────
+//
+// The counter closes a share of the remaining gap each step, with a floor so
+// the last few points always land rather than converging forever. Both of
+// those used to be expressed *per frame* — `gap * 0.1` and `max(…, 1)` — and
+// `dt` was accepted and then ignored. So the counter's speed was whatever the
+// display's was: it ran at half speed on a 30 Hz panel and at double on a
+// 120 Hz one, and any frame the loop dropped was time the counter did not
+// count.
+//
+// The shape is kept and re-expressed against wall-clock time, calibrated so
+// that a 60 fps frame does exactly what it did before. One step of dt ms is
+// dt/16.667 of the old frame-steps: the geometric decay compounds over that
+// many frames, and the floor scales linearly with it.
+//
+// Substituting dt = 1000/60 gives frames = 1, hence gap * (1 - 0.9) = gap * 0.1
+// and a floor of 1 — the old expression exactly, so the feel at 60 fps is
+// unchanged rather than merely close.
+const REFERENCE_FRAME_MS  = 1000 / 60;
+const GAP_KEPT_PER_FRAME  = 0.9;  // 10% of the remaining gap closed per frame
+const MIN_POINTS_PER_FRAME = 1;
+
+/**
+ * Animate the display score toward the actual score. Call each frame.
+ * @param {number} dt — milliseconds since the previous frame.
+ */
 export function updateDisplayScore(dt) {
-  if (displayScore < score) {
-    displayScore = Math.min(score, displayScore + Math.max(1, (score - displayScore) * 0.1));
-  }
+  if (displayScore >= score) return;
+
+  // A non-finite or non-positive dt means no time passed that we can account
+  // for — the first frame after a park hands us exactly that (main.js resets
+  // lastTime to 0). Advancing on it would be inventing time.
+  const frames = (Number.isFinite(dt) && dt > 0) ? dt / REFERENCE_FRAME_MS : 0;
+  if (frames === 0) return;
+
+  const gap   = score - displayScore;
+  const eased = gap * (1 - Math.pow(GAP_KEPT_PER_FRAME, frames));
+  const floor = MIN_POINTS_PER_FRAME * frames;
+  displayScore = Math.min(score, displayScore + Math.max(floor, eased));
 }

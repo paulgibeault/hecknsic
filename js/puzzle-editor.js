@@ -11,8 +11,9 @@
  * No server required.
  */
 
-import { encodePuzzleBoard, decodePuzzleBoard, describeGoal } from './puzzles.js';
-import { GRID_COLS, GRID_ROWS, PIECE_COLORS } from './constants.js';
+import { encodePuzzleBoard } from './puzzles.js';
+import { GRID_COLS, GRID_ROWS } from './constants.js';
+import { openModal, closeModal } from './modal.js';
 
 // ─── Share code encode/decode ───────────────────────────────────
 
@@ -91,7 +92,7 @@ export function initPuzzleEditorUI() {
       showEditorStatus('❌ Invalid code', 'error');
       return;
     }
-    document.getElementById('modal-puzzle-editor').classList.add('hidden');
+    closeModal('modal-puzzle-editor');
     if (_startPuzzleFn) _startPuzzleFn(puzzle);
   });
 
@@ -151,7 +152,9 @@ export function initPuzzleEditorUI() {
     const goal      = buildGoalFromEditor(goalType, goalParam);
 
     const puzzle = { id: 'custom', name, description: '', cols, rows, moveLimit, par, noRefill: true, goal, board };
-    document.getElementById('modal-puzzle-editor').classList.add('hidden');
+    // Close before starting: startPuzzle() can refuse (mid-animation), and the
+    // editor must not be left holding the pause when it does.
+    closeModal('modal-puzzle-editor');
     if (_startPuzzleFn) _startPuzzleFn(puzzle);
   });
 
@@ -162,7 +165,7 @@ export function initPuzzleEditorUI() {
 
   // Close editor
   document.getElementById('btn-close-puzzle-editor')?.addEventListener('click', () => {
-    document.getElementById('modal-puzzle-editor').classList.add('hidden');
+    closeModal('modal-puzzle-editor');
   });
 }
 
@@ -227,5 +230,8 @@ export function showPuzzleEditor() {
   if (colsEl) colsEl.value = GRID_COLS;
   if (rowsEl) rowsEl.value = GRID_ROWS;
   updateGoalParamLabel(document.getElementById('editor-goal-type')?.value ?? 'clear_color');
-  document.getElementById('modal-puzzle-editor').classList.remove('hidden');
+  // Pauses, like the selector: the editor's capture button reads the live
+  // board, and every way out of it either replaces that board or returns to a
+  // board the player was not playing meanwhile.
+  openModal('modal-puzzle-editor');
 }

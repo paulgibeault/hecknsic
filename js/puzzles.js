@@ -72,7 +72,7 @@ export function decodePuzzleBoard(encoded, cols, rows) {
     if (c >= 0 && c < cols && r >= 0 && r < rows) {
       // Clamp colorIndex to valid range to guard against crafted share codes.
       // Special pieces (starflower/blackpearl) use colorIndex -1/-2 — those are fine.
-      const MAX_COLOR = 5; // PIECE_COLORS.length + EXTRA_COLORS.length
+      const MAX_COLOR = 5; // PIECE_COLORS.length
       if (colorIndex >= 0) colorIndex = Math.min(colorIndex, MAX_COLOR - 1);
       grid[c][r] = { colorIndex, special };
       if (bombTimer !== null) grid[c][r].bombTimer = bombTimer;
