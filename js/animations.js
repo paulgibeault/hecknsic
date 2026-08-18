@@ -32,6 +32,7 @@ function prepopulateNameInputs() {
 
 /** Animate 3-hex cluster rotation (original pop-thunk) */
 export async function animateClusterRotation(ctx, clockwise, originX, originY) {
+  const gen = ctx.boardGeneration;
   const cluster = ctx.selectedCluster;
   const pixelPos = cluster.map(h => hexToPixel(h.col, h.row, originX, originY));
   const cx = (pixelPos[0].x + pixelPos[1].x + pixelPos[2].x) / 3;
@@ -88,12 +89,17 @@ export async function animateClusterRotation(ctx, clockwise, originX, originY) {
   }, easeOutBounce).promise;
 
   for (const fp of floaters) removeFloatingPiece(fp);
+  // The board can be swapped out from under an in-flight rotation (mode
+  // switch, puzzle load, restart). Rotating now would scramble three cells of
+  // the fresh board, and clearAllOverrides() would wipe the overrides it set.
+  if (ctx.boardGeneration !== gen) return;
   clearAllOverrides();
   rotateCluster(ctx.grid, cluster, clockwise);
 }
 
 /** Animate 6-hex ring rotation around flower center */
 export async function animateRingRotation(ctx, clockwise, originX, originY) {
+  const gen = ctx.boardGeneration;
   const center = ctx.flowerCenter;
   const ring = getNeighbors(center.col, center.row);
   const centerPx = hexToPixel(center.col, center.row, originX, originY);
@@ -155,12 +161,14 @@ export async function animateRingRotation(ctx, clockwise, originX, originY) {
   }, easeOutBounce).promise;
 
   for (const fp of floaters) removeFloatingPiece(fp);
+  if (ctx.boardGeneration !== gen) return; // board was replaced mid-rotation
   clearAllOverrides();
   rotateRing(ctx.grid, ring, clockwise);
 }
 
 /** Animate 3-hex Y-shape rotation around black pearl center */
 export async function animateYRotation(ctx, clockwise, originX, originY) {
+  const gen = ctx.boardGeneration;
   const center = ctx.pearlCenter;
   const nbrs = getNeighbors(center.col, center.row);
   // Y-shape uses alternating neighbors (0, 2, 4)
@@ -224,6 +232,7 @@ export async function animateYRotation(ctx, clockwise, originX, originY) {
   }, easeOutBounce).promise;
 
   for (const fp of floaters) removeFloatingPiece(fp);
+  if (ctx.boardGeneration !== gen) return; // board was replaced mid-rotation
   clearAllOverrides();
 
   // Apply the Y-rotation to the ctx.grid: rotate the 3 cells

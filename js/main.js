@@ -335,7 +335,9 @@ document.getElementById('game-hud-logo')?.addEventListener('click', (e) => {
 document.querySelectorAll('[data-mode]').forEach(btn => {
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
-    switchGameMode(btn.dataset.mode);
+    // Same refusal as the restart buttons: a mode switch mid-animation would
+    // replace the board out from under the rotation still running on it.
+    guardedAction(e.currentTarget, () => switchGameMode(btn.dataset.mode));
   });
 });
 
@@ -862,6 +864,10 @@ function trySelect() {
 // ─── Mode selector ──────────────────────────────────────────────
 
 async function switchGameMode(newModeId) {
+  // Backstop for the click-site guard: resetBoardForNewMode() below swaps the
+  // grid, and an in-flight rotation would land on the replacement.
+  if (isProcessing()) return;
+
   // Puzzle mode: open selector instead of switching directly
   if (newModeId === 'puzzle') {
     logoDropdown.classList.add('hidden');
