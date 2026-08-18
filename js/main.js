@@ -40,6 +40,7 @@ import {
   setKeyBindings, clearPendingAction, setClusterCenterPx, hasPendingAction,
 } from './input.js';
 import { registerFrameLoop, wakeFrameLoop } from './frame.js';
+import { openModal, closeModal, registerModalHost } from './modal.js';
 
 import {
   animateClusterRotation, animateRingRotation, animateYRotation,
@@ -119,7 +120,9 @@ export function isProcessing() {
 }
 
 /**
- * Come back from a modal. Every close handler goes through here.
+ * Come back from a modal. Every close goes through here — no longer because
+ * eleven handlers each remember to call it, but because closeModal() in
+ * js/modal.js is the only thing that closes a modal and this is its resume().
  *
  * Clearing isPaused is not enough on its own: a paused frame parks the loop,
  * and a parked loop does not restart just because a flag flipped. That was
@@ -133,6 +136,17 @@ function resumeFromPause() {
   lastTime = 0;
   wakeFrameLoop();
 }
+
+// Hand the pause flag to the modal seam. Every open/close in the game goes
+// through js/modal.js from here on, so the pause/resume pairing is one
+// function's problem rather than eleven call sites' — see the header there.
+// resume() is resumeFromPause() itself, which wakes the loop via wakeFrameLoop()
+// and therefore still through the gate registered below. The seam adds no
+// second way to start the loop.
+registerModalHost({
+  pause: () => { isPaused = true; },
+  resume: resumeFromPause,
+});
 
 // DEBUG: Expose internals
 window.debug = {
@@ -260,26 +274,22 @@ Arcade.onSettingsChange(applyFontScale);
 const nonGameUI = ['btn-help', 'modal-help', 'btn-close-help'];
 document.getElementById('btn-help').addEventListener('click', (e) => {
   e.stopPropagation();
-  isPaused = true;
-  document.getElementById('modal-help').classList.remove('hidden');
+  openModal('modal-help');
 });
 document.getElementById('btn-close-help').addEventListener('click', (e) => {
   e.stopPropagation();
-  document.getElementById('modal-help').classList.add('hidden');
-  resumeFromPause();
+  closeModal('modal-help');
 });
 
 // Scores Modal bindings
 document.getElementById('btn-scores').addEventListener('click', (e) => {
   e.stopPropagation();
-  isPaused = true;
   showHighScores();
-  document.getElementById('modal-scores').classList.remove('hidden');
+  openModal('modal-scores');
 });
 document.getElementById('btn-close-scores').addEventListener('click', (e) => {
   e.stopPropagation();
-  document.getElementById('modal-scores').classList.add('hidden');
-  resumeFromPause();
+  closeModal('modal-scores');
 });
 
 // Shared guard: shake a button and bail if board is mid-animation.
@@ -344,15 +354,13 @@ document.querySelectorAll('[data-mode]').forEach(btn => {
 // Settings Modal bindings
 document.getElementById('dropdown-btn-settings').addEventListener('click', (e) => {
   e.stopPropagation();
-  isPaused = true;
-  logoDropdown.classList.add('hidden'); // Close the menu
-  document.getElementById('modal-settings').classList.remove('hidden');
+  logoDropdown.classList.add('hidden'); // Close the menu (not a modal root)
+  openModal('modal-settings');
 });
 document.getElementById('btn-close-settings').addEventListener('click', (e) => {
   e.stopPropagation();
-  document.getElementById('modal-settings').classList.add('hidden');
   saveSettings(settings); // Persist updated bindings
-  resumeFromPause();
+  closeModal('modal-settings');
   requestRedraw();
 });
 
@@ -383,23 +391,21 @@ const endSessionModal = document.getElementById('modal-end-session');
 
 document.getElementById('dropdown-btn-end-session').addEventListener('click', (e) => {
   e.stopPropagation();
-  isPaused = true;
   logoDropdown.classList.add('hidden');
-  
+
   // Re-trigger CSS animation
   const content = endSessionModal.querySelector('.modal-content');
   content.classList.remove('shake-animation');
   void content.offsetWidth; // trigger reflow
   content.classList.add('shake-animation');
-  
+
   prepopulateNameInputs();
-  endSessionModal.classList.remove('hidden');
+  openModal('modal-end-session');
 });
 
 document.getElementById('btn-cancel-end').addEventListener('click', (e) => {
   e.stopPropagation();
-  endSessionModal.classList.add('hidden');
-  resumeFromPause();
+  closeModal('modal-end-session');
   requestRedraw();
   // allow board interactions again
 });
@@ -409,16 +415,18 @@ document.getElementById('btn-cancel-end').addEventListener('click', (e) => {
 document.getElementById('btn-continue-gamewin').addEventListener('click', (e) => {
   e.stopPropagation();
   setNameFromInput('gw-name');
-  document.getElementById('modal-gamewin').classList.add('hidden');
   state = 'idle';
-  resumeFromPause();
+  closeModal('modal-gamewin');
   requestRedraw();
 });
 
 document.getElementById('btn-newgame-gamewin').addEventListener('click', (e) => {
   e.stopPropagation();
   setNameFromInput('gw-name');
-  guardedAction(e.currentTarget, resetGame);
+  guardedAction(e.currentTarget, () => {
+    closeModal('modal-gamewin');
+    resetGame();
+  });
 });
 
 // Over-Achiever Modal binding
@@ -426,7 +434,7 @@ document.getElementById('btn-newgame-oa').addEventListener('click', (e) => {
   e.stopPropagation();
   commitScoreFromInput('oa-name', 'over-achiever');
   guardedAction(e.currentTarget, () => {
-    document.getElementById('modal-over-achiever').classList.add('hidden');
+    closeModal('modal-over-achiever');
     resetGame();
   });
 });
@@ -435,8 +443,9 @@ document.getElementById('btn-confirm-end').addEventListener('click', (e) => {
   e.stopPropagation();
   // Commit the chill-session score before the explosion sequence resets state.
   commitScoreFromInput('es-name');
-  endSessionModal.classList.add('hidden');
-  resumeFromPause(); // Must unpause so the tween game-loop can tick!
+  // closeModal() resumes: the explosion tween below only ticks on a running
+  // loop, so the close must never leave the game parked.
+  closeModal('modal-end-session');
   requestRedraw();
 
   // End session logic: trigger explosion sequence
@@ -917,7 +926,7 @@ function resetBoardForNewMode() {
   activeRows = GRID_ROWS;
   setActiveGridSize(GRID_COLS, GRID_ROWS);
   state = 'idle';
-  document.getElementById('modal-gameover').classList.add('hidden');
+  closeModal('modal-gameover');
   requestRedraw();
 }
 
@@ -976,7 +985,7 @@ function handleGameWin() {
   stopBed();
   playGameWin();
   prepopulateNameInputs();
-  document.getElementById('modal-gamewin').classList.remove('hidden');
+  openModal('modal-gamewin');
 }
 
 /** How pressed the player is by bombs, 0..1, from the SHORTEST live fuse on the
@@ -1191,16 +1200,12 @@ function resetGame() {
   stopBed(0.4);
   startBed(getActiveGameModeId());
 
-  document.getElementById('modal-gameover').classList.add('hidden');
-  
-  // Ensure we are unpaused and running
-  isPaused = false;
-  lastTime = performance.now();
-  // This line used to read "might already be running, but safe to ensure" and
-  // raw requestAnimationFrame made that false: restarting a live game stacked
-  // a second loop and orphaned the first, so tweens ran at 2x and the board
-  // drew twice per frame, permanently. loop.start() is genuinely idempotent.
-  gameFrameLoop.start();
+  // Ensure we are unpaused and running. closeModal() is the whole of it now:
+  // it clears the pause and calls resumeFromPause(), which wakes the loop
+  // through the gate. That used to be an open-coded `isPaused = false` plus a
+  // direct gameFrameLoop.start() here — a second way to start the loop, which
+  // is exactly what the gate exists to be the only one of.
+  closeModal('modal-gameover');
 }
 
 function saveGame() {

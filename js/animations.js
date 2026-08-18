@@ -18,6 +18,7 @@ import {
   detectStarflowersAtCleared, detectBlackPearls, detectMultiplierClusters
 } from './specials.js';
 import { onStarflowerCreated } from './puzzle-mode.js';
+import { openModal } from './modal.js';
 import { getPlayerName, recordGameEnd } from './storage.js';
 import { playGameOver, playOverAchiever, stopBed } from './audio.js';
 
@@ -471,7 +472,9 @@ export async function handleOverAchiever(ctx) {
   document.getElementById('go-oa-score').textContent = getScore().toLocaleString();
   document.getElementById('go-oa-combo').textContent = `x${getMaxCombo()}`;
   prepopulateNameInputs();
-  document.getElementById('modal-over-achiever').classList.remove('hidden');
+  // Non-pausing by policy (js/modal.js): the explosion tween below runs
+  // *behind* this modal and only ticks on a running loop.
+  openModal('modal-over-achiever');
 
   // Board explosion (reuse game-over explosion aesthetic)
   const { originX, originY } = getOrigin();
@@ -546,7 +549,8 @@ export async function handleGameOver(ctx, isSessionEnd = false) {
     document.getElementById('go-score').textContent = getScore().toLocaleString();
     document.getElementById('go-combo').textContent = `x${getMaxCombo()}`;
     prepopulateNameInputs();
-    document.getElementById('modal-gameover').classList.remove('hidden');
+    // Non-pausing by policy (js/modal.js) — see the over-achiever note above.
+    openModal('modal-gameover');
   }
 
   // 2. Explode the board!
