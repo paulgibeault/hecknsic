@@ -31,3 +31,5 @@ jobs:
       # This app cache-busts its PWA via a deploy-time patch bump
       # (package.json, manifest start_url, index.html badge).
       version_bump: true
+      # Publish the game's offline pack so the launcher can run it with no network.
+      offline_pack: true
